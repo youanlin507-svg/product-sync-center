@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>Product Sync Center</title>
+    <style>
+        body {
+            font-family: Arial;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        button {
+            background: #008060;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 18px;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+        pre {
+            background: #f4f4f4;
+            padding: 20px;
+            white-space: pre-wrap;
+            border-radius: 8px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🛍 Product Sync Center</h1>
+    <p>Shopify 多品牌商品同步系統</p>
+
+    <button onclick="runSync()">🚀 開始同步</button>
+
+    <h2>同步結果</h2>
+    <pre id="result">尚未執行</pre>
+
+    <script>
+        async function runSync() {
+            document.getElementById("result").textContent = "同步中...";
+
+            const response = await fetch("http://127.0.0.1:8000/sync", {
+                method: "POST"
+            });
+
+            const data = await response.json();
+            document.getElementById("result").textContent =
+                data.stdout || JSON.stringify(data, null, 2);
+        }
+    </script>
+</body>
+</html>
