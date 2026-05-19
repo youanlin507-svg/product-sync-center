@@ -86,7 +86,7 @@ def get_product_by_handle(shop, token, handle):
     return products[0] if products else None
 
 
-def product_exists(shop, token, title):
+def find_product_by_title(shop, token, title):
     encoded_title = quote(title)
     url = (
         f"https://{shop}/admin/api/{API_VERSION}/products.json"
@@ -94,7 +94,9 @@ def product_exists(shop, token, title):
     )
     response = requests.get(url, headers=headers(token))
     response.raise_for_status()
-    return len(response.json().get("products", [])) > 0
+
+    products = response.json().get("products", [])
+    return products[0] if products else None
 
 
 def get_product_metafields(shop, token, product_id):
@@ -137,6 +139,163 @@ def create_product_metafield(shop, token, product_id, metafield):
 
     response.raise_for_status()
     return response.json()
+
+
+def get_source_product_collects(product_id):
+    url = (
+        f"https://{MASTER_SHOP}/admin/api/{API_VERSION}/collects.json"
+        f"?product_id={product_id}&limit=250"
+    )
+    response = requests.get(url, headers=headers(MASTER_TOKEN))
+    response.raise_for_status()
+    return response.json().get("collects", [])
+
+
+def get_custom_collection(shop, token, collection_id):
+    url = f"https://{shop}/admin/api/{API_VERSION}/custom_collections/{collection_id}.json"
+    response = requests.get(url, headers=headers(token))
+
+    if response.status_code == 404:
+        return None
+
+    response.raise_for_status()
+    return response.json().get("custom_collection")
+
+
+def get_smart_collection(shop, token, collection_id):
+    url = f"https://{shop}/admin/api/{API_VERSION}/smart_collections/{collection_id}.json"
+    response = requests.get(url, headers=headers(token))
+
+    if response.status_code == 404:
+        return None
+
+    response.raise_for_status()
+    return response.json().get("smart_collection")
+
+
+def get_source_product_collections(source_product):
+    product_id = source_product.get("id")
+
+    if not product_id:
+        return []
+
+    collects = get_source_product_collects(product_id)
+
+    collections = []
+
+    for collect in collects:
+        collection_id = collect.get("collection_id")
+
+        if not collection_id:
+            continue
+
+        custom_collection = get_custom_collection(
+            MASTER_SHOP,
+            MASTER_TOKEN,
+            collection_id
+        )
+
+        if custom_collection:
+            collections.append({
+                "type": "custom",
+                "title": custom_collection.get("title"),
+                "handle": custom_collection.get("handle"),
+            })
+            continue
+
+        smart_collection = get_smart_collection(
+            MASTER_SHOP,
+            MASTER_TOKEN,
+            collection_id
+        )
+
+        if smart_collection:
+            collections.append({
+                "type": "smart",
+                "title": smart_collection.get("title"),
+                "handle": smart_collection.get("handle"),
+            })
+
+    return collections
+
+
+def find_target_custom_collection(shop, token, handle, title):
+    url = f"https://{shop}/admin/api/{API_VERSION}/custom_collections.json?limit=250"
+    response = requests.get(url, headers=headers(token))
+    response.raise_for_status()
+
+    collections = response.json().get("custom_collections", [])
+
+    for collection in collections:
+        if handle and collection.get("handle") == handle:
+            return collection
+
+    for collection in collections:
+        if title and collection.get("title") == title:
+            return collection
+
+    return None
+
+
+def add_product_to_collection(shop, token, product_id, collection_id):
+    url = f"https://{shop}/admin/api/{API_VERSION}/collects.json"
+
+    payload = {
+        "collect": {
+            "product_id": product_id,
+            "collection_id": collection_id
+        }
+    }
+
+    response = requests.post(url, headers=headers(token), json=payload)
+
+    if response.status_code == 422:
+        print("ℹ️ 商品可能已經在此商品系列中")
+        return None
+
+    if not response.ok:
+        print("⚠️ 商品系列同步失敗")
+        print(response.text)
+
+    response.raise_for_status()
+    return response.json()
+
+
+def sync_collections(source_product, target_shop, target_token, target_product_id):
+    collections = get_source_product_collections(source_product)
+
+    if not collections:
+        print("ℹ️ 沒有商品系列可同步")
+        return
+
+    for collection in collections:
+        title = collection.get("title")
+        handle = collection.get("handle")
+        collection_type = collection.get("type")
+
+        if collection_type == "smart":
+            print(f"ℹ️ 智慧商品系列不手動加入：{title}")
+            continue
+
+        target_collection = find_target_custom_collection(
+            target_shop,
+            target_token,
+            handle,
+            title
+        )
+
+        if not target_collection:
+            print(f"⚠️ 目標商店找不到同名商品系列：{title}")
+            continue
+
+        add_product_to_collection(
+            target_shop,
+            target_token,
+            target_product_id,
+            target_collection.get("id")
+        )
+
+        print(f"📁 已加入商品系列：{title}")
 
 
 def build_images(source_product):
@@ -481,7 +640,13 @@ def main():
                 print(f"⚠️ 找不到 {target_shop} 的 Token，略過")
                 continue
 
-            if product_exists(target_shop, target_token, title):
+            existing_product = find_product_by_title(
+                target_shop,
+                target_token,
+                title
+            )
+
+            if existing_product:
                 print(f"⏭️ 已存在，略過：{target_shop}")
                 continue
 
@@ -501,6 +666,13 @@ def main():
                 target_product_id = created_product["product"]["id"]
 
                 sync_size_chart(
+                    product,
+                    target_shop,
+                    target_token,
+                    target_product_id
+                )
+
+                sync_collections(
                     product,
                     target_shop,
                     target_token,
