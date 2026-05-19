@@ -10,6 +10,7 @@ API_VERSION = "2024-04"
 MASTER_SHOP = os.getenv("MASTER_SHOP")
 MASTER_TOKEN = os.getenv("MASTER_TOKEN")
 
+
 BRAND_TEMPLATE_MAP = {
     "DESCENTE": os.getenv("DESCENTE_TEMPLATE_HANDLE"),
     "G/FORE": os.getenv("GFORE_TEMPLATE_HANDLE"),
@@ -28,6 +29,15 @@ def headers(token):
     }
 
 
+def normalize_brand(vendor):
+    return (
+        vendor.upper()
+        .replace("/", "")
+        .replace(" ", "_")
+        .replace("-", "_")
+    )
+
+
 def get_shop_token(shop):
     key = (
         "TARGET_"
@@ -39,10 +49,6 @@ def get_shop_token(shop):
     return os.getenv(key)
 
 
-def normalize_brand(vendor):
-    return vendor.upper().replace("/", "").replace(" ", "_").replace("-", "_")
-
-
 def get_target_shops(vendor):
     env_key = f"BRAND_{normalize_brand(vendor)}_STORES"
     stores = os.getenv(env_key, "")
@@ -51,9 +57,9 @@ def get_target_shops(vendor):
 
 def get_products(shop, token):
     url = f"https://{shop}/admin/api/{API_VERSION}/products.json?limit=250"
-    res = requests.get(url, headers=headers(token))
-    res.raise_for_status()
-    return res.json().get("products", [])
+    response = requests.get(url, headers=headers(token))
+    response.raise_for_status()
+    return response.json().get("products", [])
 
 
 def get_product_by_handle(shop, token, handle):
@@ -61,44 +67,55 @@ def get_product_by_handle(shop, token, handle):
         return None
 
     url = f"https://{shop}/admin/api/{API_VERSION}/products.json?handle={handle}"
-    res = requests.get(url, headers=headers(token))
-    res.raise_for_status()
+    response = requests.get(url, headers=headers(token))
+    response.raise_for_status()
 
-    products = res.json().get("products", [])
+    products = response.json().get("products", [])
     return products[0] if products else None
 
 
 def product_exists(shop, token, title):
     encoded_title = quote(title)
-    url = f"https://{shop}/admin/api/{API_VERSION}/products.json?title={encoded_title}&limit=1"
-    res = requests.get(url, headers=headers(token))
-    res.raise_for_status()
-    return len(res.json().get("products", [])) > 0
+    url = (
+        f"https://{shop}/admin/api/{API_VERSION}/products.json"
+        f"?title={encoded_title}&limit=1"
+    )
+
+    response = requests.get(url, headers=headers(token))
+    response.raise_for_status()
+
+    products = response.json().get("products", [])
+    return len(products) > 0
 
 
-def build_images(product):
+def build_images(source_product):
     images = []
 
-    for image in product.get("images", []):
+    for image in source_product.get("images", []):
         src = image.get("src")
+
         if src:
-            img = {"src": src}
+            image_data = {"src": src}
+
             if image.get("alt"):
-                img["alt"] = image.get("alt")
-            images.append(img)
+                image_data["alt"] = image.get("alt")
+
+            images.append(image_data)
 
     return images
 
 
-def build_images_html(product):
+def build_images_html(source_product):
     html = ""
 
-    for image in product.get("images", []):
+    for image in source_product.get("images", []):
         src = image.get("src")
+        alt = image.get("alt") or ""
+
         if src:
             html += f"""
 <p>
-  <img src="{src}" style="max-width:100%; height:auto;" />
+  <img src="{src}" alt="{alt}" style="max-width:100%; height:auto;" />
 </p>
 """
 
@@ -115,7 +132,11 @@ def format_description_with_template(source_product, template_product):
     if not template_product:
         return f"""
 <h3>{title}</h3>
-<div>{body_html}</div>
+
+<div>
+{body_html}
+</div>
+
 {images_html}
 """
 
@@ -141,11 +162,60 @@ def format_description_with_template(source_product, template_product):
 """
 
 
+def build_tags(source_product, target_shop):
+    raw_tags = source_product.get("tags", "") or ""
+
+    tags = []
+
+    if raw_tags:
+        tags.extend([
+            tag.strip()
+            for tag in raw_tags.split(",")
+            if tag.strip()
+        ])
+
+    tags.append("synced-from-ash")
+
+    vendor = (source_product.get("vendor") or "").strip()
+
+    if vendor:
+        vendor_tag = (
+            "vendor-"
+            + vendor.lower()
+            .replace("/", "")
+            .replace(" ", "-")
+            .replace("_", "-")
+        )
+        tags.append(vendor_tag)
+
+    shop = target_shop.lower()
+
+    if "descente" in shop:
+        tags.append("descente")
+    elif "gfore" in shop:
+        tags.append("gfore")
+    elif "2xu" in shop:
+        tags.append("2xu")
+    elif "callaway" in shop:
+        tags.append("callaway")
+    elif "ash" in shop:
+        tags.append("ash")
+
+    unique_tags = []
+
+    for tag in tags:
+        if tag not in unique_tags:
+            unique_tags.append(tag)
+
+    return ", ".join(unique_tags)
+
+
 def build_options(source_product):
     options = []
 
     for option in source_product.get("options", []):
         name = option.get("name")
+
         if name:
             options.append({"name": name})
 
@@ -210,13 +280,14 @@ def build_product_data(source_product, target_shop, target_token):
         ),
         "vendor": source_product.get("vendor"),
         "product_type": source_product.get("product_type"),
-        "tags": source_product.get("tags"),
+        "tags": build_tags(source_product, target_shop),
         "status": "active",
         "images": build_images(source_product),
         "variants": build_variants(source_product),
     }
 
     options = build_options(source_product)
+
     if options:
         product_data["options"] = options
 
@@ -226,18 +297,18 @@ def build_product_data(source_product, target_shop, target_token):
 def create_product(shop, token, product_data):
     url = f"https://{shop}/admin/api/{API_VERSION}/products.json"
 
-    res = requests.post(
+    response = requests.post(
         url,
         headers=headers(token),
         json={"product": product_data}
     )
 
-    if not res.ok:
+    if not response.ok:
         print(f"❌ 建立商品失敗：{shop}")
-        print(res.text)
+        print(response.text)
 
-    res.raise_for_status()
-    return res.json()
+    response.raise_for_status()
+    return response.json()
 
 
 def main():
@@ -249,6 +320,7 @@ def main():
     print(f"主來源商店：{MASTER_SHOP}")
 
     products = get_products(MASTER_SHOP, MASTER_TOKEN)
+
     print(f"找到 {len(products)} 個商品")
 
     for product in products:
@@ -264,6 +336,11 @@ def main():
         if not target_shops:
             print("⚠️ 找不到此品牌對應的目標商店，略過")
             continue
+
+        print("目標商店：")
+
+        for shop in target_shops:
+            print(f" - {shop}")
 
         for target_shop in target_shops:
             target_token = get_shop_token(target_shop)
@@ -291,9 +368,9 @@ def main():
 
                 print(f"✅ 已同步到：{target_shop}")
 
-            except Exception as e:
+            except Exception as error:
                 print(f"❌ 同步失敗：{target_shop}")
-                print(str(e))
+                print(str(error))
 
     print("\n🎉 商品同步完成")
 
