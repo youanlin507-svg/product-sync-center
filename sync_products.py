@@ -10,6 +10,8 @@ API_VERSION = "2024-04"
 MASTER_SHOP = os.getenv("MASTER_SHOP")
 MASTER_TOKEN = os.getenv("MASTER_TOKEN")
 
+SIZE_CHART_NAMESPACE = os.getenv("SIZE_CHART_NAMESPACE", "custom")
+SIZE_CHART_KEY = os.getenv("SIZE_CHART_KEY", "size_chart")
 
 BRAND_TEMPLATE_MAP = {
     "DESCENTE": os.getenv("DESCENTE_TEMPLATE_HANDLE"),
@@ -19,6 +21,16 @@ BRAND_TEMPLATE_MAP = {
     "ASH": os.getenv("ASH_TEMPLATE_HANDLE"),
     "ASH GOLF": os.getenv("ASH_TEMPLATE_HANDLE"),
     "CALLAWAY": os.getenv("CALLAWAY_TEMPLATE_HANDLE"),
+}
+
+SIZE_CHART_TEMPLATE_MAP = {
+    "DESCENTE": os.getenv("DESCENTE_SIZE_CHART_TEMPLATE_HANDLE"),
+    "G/FORE": os.getenv("GFORE_SIZE_CHART_TEMPLATE_HANDLE"),
+    "GFORE": os.getenv("GFORE_SIZE_CHART_TEMPLATE_HANDLE"),
+    "2XU": os.getenv("TWOXU_SIZE_CHART_TEMPLATE_HANDLE"),
+    "ASH": os.getenv("ASH_SIZE_CHART_TEMPLATE_HANDLE"),
+    "ASH GOLF": os.getenv("ASH_SIZE_CHART_TEMPLATE_HANDLE"),
+    "CALLAWAY": os.getenv("CALLAWAY_SIZE_CHART_TEMPLATE_HANDLE"),
 }
 
 
@@ -80,12 +92,51 @@ def product_exists(shop, token, title):
         f"https://{shop}/admin/api/{API_VERSION}/products.json"
         f"?title={encoded_title}&limit=1"
     )
-
     response = requests.get(url, headers=headers(token))
     response.raise_for_status()
+    return len(response.json().get("products", [])) > 0
 
-    products = response.json().get("products", [])
-    return len(products) > 0
+
+def get_product_metafields(shop, token, product_id):
+    url = f"https://{shop}/admin/api/{API_VERSION}/products/{product_id}/metafields.json"
+    response = requests.get(url, headers=headers(token))
+    response.raise_for_status()
+    return response.json().get("metafields", [])
+
+
+def get_size_chart_metafield(shop, token, product_id):
+    metafields = get_product_metafields(shop, token, product_id)
+
+    for metafield in metafields:
+        if (
+            metafield.get("namespace") == SIZE_CHART_NAMESPACE
+            and metafield.get("key") == SIZE_CHART_KEY
+        ):
+            return metafield
+
+    return None
+
+
+def create_product_metafield(shop, token, product_id, metafield):
+    url = f"https://{shop}/admin/api/{API_VERSION}/products/{product_id}/metafields.json"
+
+    payload = {
+        "metafield": {
+            "namespace": metafield.get("namespace"),
+            "key": metafield.get("key"),
+            "value": metafield.get("value"),
+            "type": metafield.get("type", "multi_line_text_field"),
+        }
+    }
+
+    response = requests.post(url, headers=headers(token), json=payload)
+
+    if not response.ok:
+        print("⚠️ Metafield 同步失敗")
+        print(response.text)
+
+    response.raise_for_status()
+    return response.json()
 
 
 def build_images(source_product):
@@ -164,7 +215,6 @@ def format_description_with_template(source_product, template_product):
 
 def build_tags(source_product, target_shop):
     raw_tags = source_product.get("tags", "") or ""
-
     tags = []
 
     if raw_tags:
@@ -215,7 +265,6 @@ def build_options(source_product):
 
     for option in source_product.get("options", []):
         name = option.get("name")
-
         if name:
             options.append({"name": name})
 
@@ -230,19 +279,14 @@ def build_variants(source_product):
             "option1": variant.get("option1"),
             "option2": variant.get("option2"),
             "option3": variant.get("option3"),
-
             "sku": variant.get("sku"),
             "barcode": variant.get("barcode"),
-
             "price": variant.get("price"),
             "compare_at_price": variant.get("compare_at_price"),
-
             "weight": variant.get("weight"),
             "weight_unit": variant.get("weight_unit"),
-
             "inventory_management": variant.get("inventory_management"),
             "inventory_policy": variant.get("inventory_policy"),
-
             "taxable": variant.get("taxable"),
             "requires_shipping": variant.get("requires_shipping"),
         }
@@ -311,6 +355,100 @@ def create_product(shop, token, product_data):
     return response.json()
 
 
+def build_size_chart_metafield(source_product, target_shop, target_token):
+    source_product_id = source_product.get("id")
+
+    if not source_product_id:
+        return None
+
+    source_size_chart = get_size_chart_metafield(
+        MASTER_SHOP,
+        MASTER_TOKEN,
+        source_product_id
+    )
+
+    if not source_size_chart:
+        return None
+
+    vendor = (source_product.get("vendor") or "").strip()
+
+    template_handle = (
+        SIZE_CHART_TEMPLATE_MAP.get(vendor.upper())
+        or SIZE_CHART_TEMPLATE_MAP.get(vendor)
+    )
+
+    if not template_handle:
+        return {
+            "namespace": source_size_chart.get("namespace"),
+            "key": source_size_chart.get("key"),
+            "value": source_size_chart.get("value"),
+            "type": source_size_chart.get("type", "multi_line_text_field"),
+        }
+
+    template_product = get_product_by_handle(
+        target_shop,
+        target_token,
+        template_handle
+    )
+
+    if not template_product:
+        return {
+            "namespace": source_size_chart.get("namespace"),
+            "key": source_size_chart.get("key"),
+            "value": source_size_chart.get("value"),
+            "type": source_size_chart.get("type", "multi_line_text_field"),
+        }
+
+    template_size_chart = get_size_chart_metafield(
+        target_shop,
+        target_token,
+        template_product.get("id")
+    )
+
+    if not template_size_chart:
+        return {
+            "namespace": source_size_chart.get("namespace"),
+            "key": source_size_chart.get("key"),
+            "value": source_size_chart.get("value"),
+            "type": source_size_chart.get("type", "multi_line_text_field"),
+        }
+
+    return {
+        "namespace": template_size_chart.get("namespace"),
+        "key": template_size_chart.get("key"),
+        "value": source_size_chart.get("value"),
+        "type": template_size_chart.get(
+            "type",
+            source_size_chart.get("type", "multi_line_text_field")
+        ),
+    }
+
+
+def sync_size_chart(source_product, target_shop, target_token, target_product_id):
+    size_chart_metafield = build_size_chart_metafield(
+        source_product,
+        target_shop,
+        target_token
+    )
+
+    if not size_chart_metafield:
+        print("ℹ️ 沒有尺寸表可同步")
+        return
+
+    try:
+        create_product_metafield(
+            target_shop,
+            target_token,
+            target_product_id,
+            size_chart_metafield
+        )
+        print("📏 尺寸表同步完成")
+
+    except Exception as error:
+        print("⚠️ 尺寸表同步失敗")
+        print(str(error))
+
+
 def main():
     if not MASTER_SHOP or not MASTER_TOKEN:
         print("❌ 請先設定 MASTER_SHOP 與 MASTER_TOKEN")
@@ -320,7 +458,6 @@ def main():
     print(f"主來源商店：{MASTER_SHOP}")
 
     products = get_products(MASTER_SHOP, MASTER_TOKEN)
-
     print(f"找到 {len(products)} 個商品")
 
     for product in products:
@@ -336,11 +473,6 @@ def main():
         if not target_shops:
             print("⚠️ 找不到此品牌對應的目標商店，略過")
             continue
-
-        print("目標商店：")
-
-        for shop in target_shops:
-            print(f" - {shop}")
 
         for target_shop in target_shops:
             target_token = get_shop_token(target_shop)
@@ -360,10 +492,19 @@ def main():
                     target_token
                 )
 
-                create_product(
+                created_product = create_product(
                     target_shop,
                     target_token,
                     product_data
+                )
+
+                target_product_id = created_product["product"]["id"]
+
+                sync_size_chart(
+                    product,
+                    target_shop,
+                    target_token,
+                    target_product_id
                 )
 
                 print(f"✅ 已同步到：{target_shop}")
