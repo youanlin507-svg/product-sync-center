@@ -457,12 +457,12 @@ def update_existing_product(shop, token, existing_product, product_data):
         existing_product.get("images", [])
     )
 
-    sync_variants(
-        shop,
-        token,
-        product_id,
-        product_data["variants"]
-    )
+# sync_variants(
+#     shop,
+#     token,
+#     product_id,
+#     product_data["variants"]
+# )
 
     return updated_product
 
