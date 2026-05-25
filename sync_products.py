@@ -38,19 +38,10 @@ def get_target_token(shop):
         .upper()
         + "_TOKEN"
     )
-
     return os.getenv(env_key)
 
 
-def add_result(
-    title,
-    vendor,
-    target_shop,
-    status,
-    message,
-    image="",
-    product_url=""
-):
+def add_result(title, vendor, target_shop, status, message, image="", product_url=""):
     SYNC_RESULTS.append({
         "title": title,
         "vendor": vendor,
@@ -82,34 +73,21 @@ def get_product_admin_url(shop, product_id):
 
 def get_master_products():
     url = f"https://{MASTER_SHOP}/admin/api/{API_VERSION}/products.json?limit=250"
-
-    response = requests.get(
-        url,
-        headers=shopify_headers(MASTER_TOKEN)
-    )
-
+    response = requests.get(url, headers=shopify_headers(MASTER_TOKEN))
     response.raise_for_status()
-
     return response.json().get("products", [])
 
 
 def find_product_by_title(shop, token, title):
     encoded_title = quote(title)
-
     url = (
         f"https://{shop}/admin/api/{API_VERSION}/products.json"
         f"?title={encoded_title}&limit=1"
     )
-
-    response = requests.get(
-        url,
-        headers=shopify_headers(token)
-    )
-
+    response = requests.get(url, headers=shopify_headers(token))
     response.raise_for_status()
 
     products = response.json().get("products", [])
-
     return products[0] if products else None
 
 
@@ -118,7 +96,6 @@ def build_images(product):
 
     for image in product.get("images", []):
         src = image.get("src")
-
         if src:
             image_data = {"src": src}
 
@@ -138,19 +115,14 @@ def build_variants(product):
             "option1": variant.get("option1"),
             "option2": variant.get("option2"),
             "option3": variant.get("option3"),
-
             "price": variant.get("price"),
             "compare_at_price": variant.get("compare_at_price"),
-
             "sku": variant.get("sku"),
             "barcode": variant.get("barcode"),
-
             "inventory_management": variant.get("inventory_management"),
             "inventory_policy": variant.get("inventory_policy"),
-
             "weight": variant.get("weight"),
             "weight_unit": variant.get("weight_unit"),
-
             "taxable": variant.get("taxable"),
             "requires_shipping": variant.get("requires_shipping"),
         }
@@ -171,7 +143,6 @@ def build_options(product):
 
     for option in product.get("options", []):
         name = option.get("name")
-
         if name:
             options.append({"name": name})
 
@@ -186,7 +157,6 @@ def build_tags(product, vendor):
     if raw_tags:
         for tag in raw_tags.split(","):
             tag = tag.strip()
-
             if tag:
                 tags.append(tag)
 
@@ -203,7 +173,6 @@ def build_tags(product, vendor):
         tags.append(vendor_tag)
 
     unique_tags = []
-
     for tag in tags:
         if tag not in unique_tags:
             unique_tags.append(tag)
@@ -244,23 +213,18 @@ def create_product(shop, token, product_data):
         }
     }
 
-    response = requests.post(
-        url,
-        headers=shopify_headers(token),
-        json=payload
-    )
-
+    response = requests.post(url, headers=shopify_headers(token), json=payload)
     response.raise_for_status()
 
     return response.json()["product"]
 
 
-def update_product_basic(shop, token, existing_product_id, product_data):
-    url = f"https://{shop}/admin/api/{API_VERSION}/products/{existing_product_id}.json"
+def update_product_basic(shop, token, product_id, product_data):
+    url = f"https://{shop}/admin/api/{API_VERSION}/products/{product_id}.json"
 
     payload = {
         "product": {
-            "id": existing_product_id,
+            "id": product_id,
             "title": product_data["title"],
             "body_html": product_data["body_html"],
             "vendor": product_data["vendor"],
@@ -270,12 +234,7 @@ def update_product_basic(shop, token, existing_product_id, product_data):
         }
     }
 
-    response = requests.put(
-        url,
-        headers=shopify_headers(token),
-        json=payload
-    )
-
+    response = requests.put(url, headers=shopify_headers(token), json=payload)
     response.raise_for_status()
 
     return response.json()["product"]
@@ -284,7 +243,6 @@ def update_product_basic(shop, token, existing_product_id, product_data):
 def delete_product_images(shop, token, product_id, existing_images):
     for image in existing_images:
         image_id = image.get("id")
-
         if not image_id:
             continue
 
@@ -293,10 +251,7 @@ def delete_product_images(shop, token, product_id, existing_images):
             f"{product_id}/images/{image_id}.json"
         )
 
-        response = requests.delete(
-            url,
-            headers=shopify_headers(token)
-        )
+        response = requests.delete(url, headers=shopify_headers(token))
 
         if response.status_code not in [200, 204]:
             print(f"⚠️ 刪除圖片失敗：{image_id}")
@@ -310,14 +265,10 @@ def add_product_images(shop, token, product_id, images):
             f"{product_id}/images.json"
         )
 
-        payload = {
-            "image": image
-        }
-
         response = requests.post(
             url,
             headers=shopify_headers(token),
-            json=payload
+            json={"image": image}
         )
 
         if not response.ok:
@@ -328,19 +279,8 @@ def add_product_images(shop, token, product_id, images):
 
 
 def replace_product_images(shop, token, product_id, source_images, existing_images):
-    delete_product_images(
-        shop,
-        token,
-        product_id,
-        existing_images
-    )
-
-    add_product_images(
-        shop,
-        token,
-        product_id,
-        source_images
-    )
+    delete_product_images(shop, token, product_id, existing_images)
+    add_product_images(shop, token, product_id, source_images)
 
 
 def get_product_variants(shop, token, product_id):
@@ -349,11 +289,7 @@ def get_product_variants(shop, token, product_id):
         f"{product_id}/variants.json?limit=250"
     )
 
-    response = requests.get(
-        url,
-        headers=shopify_headers(token)
-    )
-
+    response = requests.get(url, headers=shopify_headers(token))
     response.raise_for_status()
 
     return response.json().get("variants", [])
@@ -369,11 +305,7 @@ def update_variant(shop, token, variant_id, variant_data):
         }
     }
 
-    response = requests.put(
-        url,
-        headers=shopify_headers(token),
-        json=payload
-    )
+    response = requests.put(url, headers=shopify_headers(token), json=payload)
 
     if not response.ok:
         print(f"⚠️ 更新 Variant 失敗：{variant_id}")
@@ -388,14 +320,10 @@ def create_variant(shop, token, product_id, variant_data):
         f"{product_id}/variants.json"
     )
 
-    payload = {
-        "variant": variant_data
-    }
-
     response = requests.post(
         url,
         headers=shopify_headers(token),
-        json=payload
+        json={"variant": variant_data}
     )
 
     if not response.ok:
@@ -406,37 +334,68 @@ def create_variant(shop, token, product_id, variant_data):
 
 
 def sync_variants(shop, token, product_id, source_variants):
-    existing_variants = get_product_variants(
-        shop,
-        token,
-        product_id
-    )
+    existing_variants = get_product_variants(shop, token, product_id)
 
     existing_by_sku = {}
-
     for variant in existing_variants:
-        sku = variant.get("sku")
-
+        sku = (variant.get("sku") or "").strip()
         if sku:
             existing_by_sku[sku] = variant
 
     for source_variant in source_variants:
-        sku = source_variant.get("sku")
+        sku = (source_variant.get("sku") or "").strip()
 
-        if sku and sku in existing_by_sku:
-            update_variant(
-                shop,
-                token,
-                existing_by_sku[sku]["id"],
-                source_variant
-            )
+        if not sku:
+            print("⚠️ Variant 沒有 SKU，跳過")
+            continue
+
+        if sku in existing_by_sku:
+            existing_variant = existing_by_sku[sku]
+
+            try:
+                update_payload = {
+                    "price": source_variant.get("price"),
+                    "compare_at_price": source_variant.get("compare_at_price"),
+                    "barcode": source_variant.get("barcode"),
+                    "weight": source_variant.get("weight"),
+                    "weight_unit": source_variant.get("weight_unit"),
+                    "taxable": source_variant.get("taxable"),
+                    "requires_shipping": source_variant.get("requires_shipping"),
+                }
+
+                cleaned_payload = {
+                    key: value
+                    for key, value in update_payload.items()
+                    if value not in [None, ""]
+                }
+
+                update_variant(
+                    shop,
+                    token,
+                    existing_variant["id"],
+                    cleaned_payload
+                )
+
+                print(f"🔄 更新 Variant SKU：{sku}")
+
+            except Exception as error:
+                print(f"❌ 更新 Variant 失敗：{sku}")
+                print(str(error))
+
         else:
-            create_variant(
-                shop,
-                token,
-                product_id,
-                source_variant
-            )
+            try:
+                create_variant(
+                    shop,
+                    token,
+                    product_id,
+                    source_variant
+                )
+
+                print(f"✅ 新增 Variant SKU：{sku}")
+
+            except Exception as error:
+                print(f"❌ 新增 Variant 失敗：{sku}")
+                print(str(error))
 
 
 def update_existing_product(shop, token, existing_product, product_data):
@@ -457,12 +416,12 @@ def update_existing_product(shop, token, existing_product, product_data):
         existing_product.get("images", [])
     )
 
-# sync_variants(
-#     shop,
-#     token,
-#     product_id,
-#     product_data["variants"]
-# )
+    sync_variants(
+        shop,
+        token,
+        product_id,
+        product_data["variants"]
+    )
 
     return updated_product
 
@@ -471,20 +430,18 @@ def sync_products():
     print("📦 開始讀取主來源商店商品...")
 
     products = get_master_products()
-
     print(f"找到 {len(products)} 個商品")
 
     for product in products:
         title = product.get("title")
         vendor = normalize_vendor(product.get("vendor", ""))
+        first_image = get_first_image(product)
 
         print("\n====================================================")
         print(f"商品名稱：{title}")
         print(f"品牌 Vendor：{vendor}")
 
         target_shops_raw = BRAND_STORE_MAP.get(vendor, "")
-
-        first_image = get_first_image(product)
 
         if not target_shops_raw:
             print("❌ 找不到品牌對應商店")
@@ -497,7 +454,6 @@ def sync_products():
                 "找不到品牌對應商店",
                 first_image
             )
-
             continue
 
         target_shops = [
@@ -520,7 +476,6 @@ def sync_products():
                     "找不到商店 Token",
                     first_image
                 )
-
                 continue
 
             try:
