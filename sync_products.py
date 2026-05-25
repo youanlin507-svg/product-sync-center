@@ -5,7 +5,6 @@ from dotenv import load_dotenv
 from urllib.parse import quote
 
 load_dotenv()
-
 API_VERSION = "2024-04"
 
 MASTER_SHOP = os.getenv("MASTER_SHOP")
