@@ -11,6 +11,9 @@ API_VERSION = "2024-04"
 MASTER_SHOP = os.getenv("MASTER_SHOP")
 MASTER_TOKEN = os.getenv("MASTER_TOKEN")
 
+SIZE_CHART_NAMESPACE = os.getenv("SIZE_CHART_NAMESPACE", "custom")
+SIZE_CHART_KEY = os.getenv("SIZE_CHART_KEY", "size_chart")
+
 SYNC_RESULTS = []
 
 BRAND_STORE_MAP = {
@@ -88,6 +91,125 @@ def find_product_by_title(shop, token, title):
     response.raise_for_status()
     products = response.json().get("products", [])
     return products[0] if products else None
+
+
+def get_product_metafields(shop, token, product_id):
+    url = (
+        f"https://{shop}/admin/api/{API_VERSION}/products/"
+        f"{product_id}/metafields.json"
+    )
+
+    response = requests.get(
+        url,
+        headers=shopify_headers(token)
+    )
+
+    response.raise_for_status()
+
+    return response.json().get("metafields", [])
+
+
+def get_size_chart_metafield(shop, token, product_id):
+    metafields = get_product_metafields(shop, token, product_id)
+
+    for metafield in metafields:
+        if (
+            metafield.get("namespace") == SIZE_CHART_NAMESPACE
+            and metafield.get("key") == SIZE_CHART_KEY
+        ):
+            return metafield
+
+    return None
+
+
+def create_product_metafield(shop, token, product_id, metafield):
+    url = (
+        f"https://{shop}/admin/api/{API_VERSION}/products/"
+        f"{product_id}/metafields.json"
+    )
+
+    payload = {
+        "metafield": {
+            "namespace": metafield.get("namespace"),
+            "key": metafield.get("key"),
+            "value": metafield.get("value"),
+            "type": metafield.get("type", "multi_line_text_field"),
+        }
+    }
+
+    response = requests.post(
+        url,
+        headers=shopify_headers(token),
+        json=payload
+    )
+
+    if not response.ok:
+        print("⚠️ 新增尺寸表失敗")
+        print(response.text)
+
+    response.raise_for_status()
+
+
+def update_product_metafield(shop, token, metafield_id, metafield):
+    url = f"https://{shop}/admin/api/{API_VERSION}/metafields/{metafield_id}.json"
+
+    payload = {
+        "metafield": {
+            "id": metafield_id,
+            "value": metafield.get("value"),
+            "type": metafield.get("type", "multi_line_text_field"),
+        }
+    }
+
+    response = requests.put(
+        url,
+        headers=shopify_headers(token),
+        json=payload
+    )
+
+    if not response.ok:
+        print("⚠️ 更新尺寸表失敗")
+        print(response.text)
+
+    response.raise_for_status()
+
+
+def sync_size_chart(source_product, target_shop, target_token, target_product_id):
+    source_size_chart = get_size_chart_metafield(
+        MASTER_SHOP,
+        MASTER_TOKEN,
+        source_product["id"]
+    )
+
+    if not source_size_chart:
+        print("ℹ️ 來源商品沒有尺寸表，略過")
+        return "無尺寸表"
+
+    target_size_chart = get_size_chart_metafield(
+        target_shop,
+        target_token,
+        target_product_id
+    )
+
+    if target_size_chart:
+        update_product_metafield(
+            target_shop,
+            target_token,
+            target_size_chart["id"],
+            source_size_chart
+        )
+        print("📏 尺寸表已更新")
+        return "尺寸表已更新"
+
+    create_product_metafield(
+        target_shop,
+        target_token,
+        target_product_id,
+        source_size_chart
+    )
+
+    print("📏 尺寸表已新增")
+    return "尺寸表已新增"
 
 
 def build_images(product):
@@ -194,8 +316,6 @@ def build_product_data(product):
         "images": build_images(product),
         "variants": build_variants(product),
         "options": build_options(product),
-
-        # 同步來源商品狀態：active / draft / archived
         "status": product.get("status", "draft"),
     }
 
@@ -222,6 +342,7 @@ def create_product(shop, token, product_data):
         headers=shopify_headers(token),
         json=payload
     )
+
     response.raise_for_status()
 
     return response.json()["product"]
@@ -247,6 +368,7 @@ def update_product_basic(shop, token, product_id, product_data):
         headers=shopify_headers(token),
         json=payload
     )
+
     response.raise_for_status()
 
     return response.json()["product"]
@@ -320,6 +442,7 @@ def get_product_variants(shop, token, product_id):
         url,
         headers=shopify_headers(token)
     )
+
     response.raise_for_status()
 
     return response.json().get("variants", [])
@@ -438,7 +561,7 @@ def sync_variants(shop, token, product_id, source_variants):
                 print(str(error))
 
 
-def update_existing_product(shop, token, existing_product, product_data):
+def update_existing_product(shop, token, existing_product, product_data, source_product):
     product_id = existing_product["id"]
 
     updated_product = update_product_basic(
@@ -463,7 +586,14 @@ def update_existing_product(shop, token, existing_product, product_data):
         product_data["variants"]
     )
 
-    return updated_product
+    size_chart_message = sync_size_chart(
+        source_product,
+        shop,
+        token,
+        product_id
+    )
+
+    return updated_product, size_chart_message
 
 
 def sync_products():
@@ -530,11 +660,12 @@ def sync_products():
                 )
 
                 if existing_product:
-                    updated_product = update_existing_product(
+                    updated_product, size_chart_message = update_existing_product(
                         target_shop,
                         target_token,
                         existing_product,
-                        product_data
+                        product_data,
+                        product
                     )
 
                     product_url = get_product_admin_url(
@@ -549,7 +680,7 @@ def sync_products():
                         vendor,
                         target_shop,
                         "success",
-                        f"商品已存在，已更新，狀態：{product_data['status']}",
+                        f"商品已存在，已更新，狀態：{product_data['status']}，{size_chart_message}",
                         first_image,
                         product_url
                     )
@@ -559,6 +690,13 @@ def sync_products():
                         target_shop,
                         target_token,
                         product_data
+                    )
+
+                    size_chart_message = sync_size_chart(
+                        product,
+                        target_shop,
+                        target_token,
+                        created_product["id"]
                     )
 
                     product_url = get_product_admin_url(
@@ -573,7 +711,7 @@ def sync_products():
                         vendor,
                         target_shop,
                         "success",
-                        f"新增商品成功，狀態：{product_data['status']}",
+                        f"新增商品成功，狀態：{product_data['status']}，{size_chart_message}",
                         first_image,
                         product_url
                     )
