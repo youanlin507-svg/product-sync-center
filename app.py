@@ -11,6 +11,9 @@ import base64
 
 app = FastAPI(title="Product Sync Center")
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+SYNC_FILE = os.path.join(BASE_DIR, "sync_products.py")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -23,7 +26,12 @@ app.add_middleware(
 def verify_shopify_webhook(raw_body: bytes, hmac_header: str) -> bool:
     secret = os.getenv("SHOPIFY_WEBHOOK_SECRET")
 
-    if not secret or not hmac_header:
+    if not secret:
+        print("❌ SHOPIFY_WEBHOOK_SECRET 未設定")
+        return False
+
+    if not hmac_header:
+        print("❌ Webhook 沒有 HMAC Header")
         return False
 
     digest = hmac.new(
@@ -38,13 +46,23 @@ def verify_shopify_webhook(raw_body: bytes, hmac_header: str) -> bool:
 
 
 def run_sync_script():
+    print("🚀 開始執行 sync_products.py")
+    print(f"📄 Sync file path: {SYNC_FILE}")
+
     result = subprocess.run(
-        [sys.executable, "sync_products.py"],
+        [sys.executable, SYNC_FILE],
         capture_output=True,
         text=True,
         encoding="utf-8",
         errors="ignore"
     )
+
+    print("========== SYNC STDOUT ==========")
+    print(result.stdout)
+    print("========== SYNC STDERR ==========")
+    print(result.stderr)
+    print("========== SYNC RETURN CODE ==========")
+    print(result.returncode)
 
     summary = {
         "success": 0,
@@ -62,10 +80,13 @@ def run_sync_script():
         if start_key in stdout and end_key in stdout:
             json_text = stdout.split(start_key)[-1].split(end_key)[0].strip()
             parsed = json.loads(json_text)
+
             summary = parsed.get("summary", summary)
             results = parsed.get("results", [])
 
-    except Exception:
+    except Exception as error:
+        print("❌ 解析同步 JSON 失敗")
+        print(str(error))
         summary["failed"] = 1
 
     return {
@@ -281,7 +302,7 @@ pre {
 
 <div class="card">
     <button onclick="runSync()">🚀 手動同步商品</button>
-    <p>Webhook 自動同步已啟用後，ASH 商品新增或更新時會自動同步。</p>
+    <p>Webhook 自動同步已啟用後，來源商店商品新增或更新時會自動同步。</p>
 </div>
 
 <div class="card">
@@ -399,19 +420,28 @@ generateRules();
 
 @app.post("/sync")
 def manual_sync():
+    print("🖱️ 手動同步被觸發")
     return JSONResponse(run_sync_script())
 
 
 @app.post("/webhooks/products/create")
 async def product_create_webhook(request: Request):
+    print("🔥 Product Create Webhook Received")
+
     raw_body = await request.body()
     hmac_header = request.headers.get("X-Shopify-Hmac-Sha256")
 
     if not verify_shopify_webhook(raw_body, hmac_header):
+        print("❌ Product Create Webhook HMAC 驗證失敗")
         return JSONResponse(
-            {"success": False, "message": "Invalid webhook HMAC"},
+            {
+                "success": False,
+                "message": "Invalid webhook HMAC"
+            },
             status_code=401
         )
+
+    print("✅ Product Create Webhook HMAC 驗證成功")
 
     data = run_sync_script()
 
@@ -425,14 +455,22 @@ async def product_create_webhook(request: Request):
 
 @app.post("/webhooks/products/update")
 async def product_update_webhook(request: Request):
+    print("🔥 Product Update Webhook Received")
+
     raw_body = await request.body()
     hmac_header = request.headers.get("X-Shopify-Hmac-Sha256")
 
     if not verify_shopify_webhook(raw_body, hmac_header):
+        print("❌ Product Update Webhook HMAC 驗證失敗")
         return JSONResponse(
-            {"success": False, "message": "Invalid webhook HMAC"},
+            {
+                "success": False,
+                "message": "Invalid webhook HMAC"
+            },
             status_code=401
         )
+
+    print("✅ Product Update Webhook HMAC 驗證成功")
 
     data = run_sync_script()
 
@@ -449,5 +487,6 @@ def health():
     return {
         "app": "Product Sync Center",
         "status": "running",
-        "webhook": "enabled"
+        "webhook": "enabled",
+        "sync_file": SYNC_FILE
     }
