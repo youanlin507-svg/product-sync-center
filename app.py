@@ -147,6 +147,10 @@ body {
     border: 1px solid #ddd;
 }
 
+.hidden-card {
+    display: none;
+}
+
 h1 {
     font-size: 32px;
     margin-bottom: 8px;
@@ -324,7 +328,7 @@ pre {
     </div>
 </div>
 
-<div class="card">
+<div class="card hidden-card">
     <h2>③ 品牌同步規則（自動產生）</h2>
     <textarea id="brandRules" rows="6" readonly></textarea>
 </div>
@@ -356,7 +360,7 @@ pre {
     </div>
 </div>
 
-<div class="card">
+<div class="card hidden-card">
     <h2>⑦ 原始同步輸出</h2>
     <pre id="rawOutput">尚未執行同步</pre>
 </div>
@@ -372,8 +376,10 @@ function generateRules() {
         rules.push(item.dataset.brand + " -> " + item.value);
     });
 
-    document.getElementById("brandRules").value =
-        rules.length > 0 ? rules.join("\\n") : "尚未選擇目標商店";
+    const brandRules = document.getElementById("brandRules");
+    if (brandRules) {
+        brandRules.value = rules.length > 0 ? rules.join("\\n") : "尚未選擇目標商店";
+    }
 }
 
 document.querySelectorAll('.checkbox-group input[type="checkbox"]').forEach(item => {
@@ -424,7 +430,9 @@ async function runSync() {
     const rawOutput = document.getElementById("rawOutput");
 
     productCards.innerHTML = "<p>同步中，請稍候...</p>";
-    rawOutput.textContent = "同步中，請稍候...";
+    if (rawOutput) {
+        rawOutput.textContent = "同步中，請稍候...";
+    }
 
     try {
         const response = await fetch("/sync", { method: "POST" });
@@ -434,11 +442,13 @@ async function runSync() {
         document.getElementById("skippedCount").textContent = data.summary.skipped || 0;
         document.getElementById("failedCount").textContent = data.summary.failed || 0;
 
-        rawOutput.textContent =
-            "執行狀態：" + (data.success ? "成功" : "失敗") + "\\n\\n" +
-            "Return Code：" + data.returncode + "\\n\\n" +
-            "同步輸出：\\n" + data.stdout + "\\n\\n" +
-            "錯誤訊息：\\n" + data.stderr;
+        if (rawOutput) {
+            rawOutput.textContent =
+                "執行狀態：" + (data.success ? "成功" : "失敗") + "\\n\\n" +
+                "Return Code：" + data.returncode + "\\n\\n" +
+                "同步輸出：\\n" + data.stdout + "\\n\\n" +
+                "錯誤訊息：\\n" + data.stderr;
+        }
 
         productCards.innerHTML = "";
 
@@ -468,7 +478,10 @@ async function runSync() {
 
     } catch (error) {
         productCards.innerHTML = "<p>同步失敗。</p>";
-        rawOutput.textContent = "同步失敗：\\n" + error;
+
+        if (rawOutput) {
+            rawOutput.textContent = "同步失敗：\\n" + error;
+        }
     }
 }
 
