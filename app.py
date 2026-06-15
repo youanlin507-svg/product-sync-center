@@ -23,6 +23,22 @@ app.add_middleware(
 )
 
 
+# =========================
+# Webhook 自動同步開關
+# Render Environment 設定：
+# WEBHOOK_AUTO_SYNC_ENABLED=true  開啟
+# WEBHOOK_AUTO_SYNC_ENABLED=false 關閉
+# =========================
+
+def is_webhook_auto_sync_enabled():
+    value = os.getenv(
+        "WEBHOOK_AUTO_SYNC_ENABLED",
+        "true"
+    )
+
+    return value.lower() == "true"
+
+
 def verify_shopify_webhook(raw_body: bytes, hmac_header: str) -> bool:
     secret = os.getenv("SHOPIFY_WEBHOOK_SECRET")
 
@@ -302,7 +318,7 @@ pre {
 
 <div class="card">
     <button onclick="runSync()">🚀 手動同步商品</button>
-    <p>Webhook 自動同步已啟用後，來源商店商品新增或更新時會自動同步。</p>
+    <p>Webhook 自動同步可用 Render 環境變數 WEBHOOK_AUTO_SYNC_ENABLED 開啟或關閉。</p>
 </div>
 
 <div class="card">
@@ -443,6 +459,14 @@ async def product_create_webhook(request: Request):
 
     print("✅ Product Create Webhook HMAC 驗證成功")
 
+    if not is_webhook_auto_sync_enabled():
+        print("⏸️ Webhook 自動同步已關閉")
+        return JSONResponse({
+            "success": True,
+            "event": "products/create",
+            "message": "Webhook received, auto sync disabled"
+        })
+
     data = run_sync_script()
 
     return JSONResponse({
@@ -472,6 +496,14 @@ async def product_update_webhook(request: Request):
 
     print("✅ Product Update Webhook HMAC 驗證成功")
 
+    if not is_webhook_auto_sync_enabled():
+        print("⏸️ Webhook 自動同步已關閉")
+        return JSONResponse({
+            "success": True,
+            "event": "products/update",
+            "message": "Webhook received, auto sync disabled"
+        })
+
     data = run_sync_script()
 
     return JSONResponse({
@@ -488,5 +520,6 @@ def health():
         "app": "Product Sync Center",
         "status": "running",
         "webhook": "enabled",
+        "webhook_auto_sync_enabled": is_webhook_auto_sync_enabled(),
         "sync_file": SYNC_FILE
     }
