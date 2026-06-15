@@ -3,32 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <title>Product Sync Center</title>
-
     <style>
         body {
-            font-family: Arial, "Microsoft JhengHei", sans-serif;
-            max-width: 900px;
-            margin: 40px auto;
+            font-family: Arial;
+            max-width: 800px;
+            margin: 50px auto;
             padding: 20px;
-            background: #f6f6f7;
         }
-
-        .card {
-            background: white;
-            border: 1px solid #ddd;
-            border-radius: 12px;
-            padding: 24px;
-            margin-bottom: 20px;
-        }
-
-        h1 {
-            margin-bottom: 5px;
-        }
-
-        h2 {
-            margin-top: 0;
-        }
-
         button {
             background: #008060;
             color: white;
@@ -37,271 +18,36 @@
             font-size: 18px;
             border-radius: 8px;
             cursor: pointer;
-            margin-right: 10px;
         }
-
-        button.off {
-            background: #d72c0d;
-        }
-
-        .status {
-            font-size: 20px;
-            font-weight: bold;
-            margin-bottom: 15px;
-        }
-
-        .summary {
-            display: flex;
-            gap: 15px;
-            margin-bottom: 20px;
-        }
-
-        .summary-box {
-            flex: 1;
-            background: #f9fafb;
-            border: 1px solid #ddd;
-            border-radius: 10px;
-            padding: 16px;
-            font-size: 18px;
-            font-weight: bold;
-        }
-
         pre {
-            background: #111827;
-            color: #10b981;
+            background: #f4f4f4;
             padding: 20px;
             white-space: pre-wrap;
             border-radius: 8px;
-            display: none;
-        }
-
-        .product-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-            gap: 16px;
-        }
-
-        .product-card {
-            background: white;
-            border: 1px solid #ddd;
-            border-radius: 12px;
-            overflow: hidden;
-        }
-
-        .product-card img {
-            width: 100%;
-            height: 180px;
-            object-fit: cover;
-            background: #f3f4f6;
-        }
-
-        .product-content {
-            padding: 14px;
-        }
-
-        .success {
-            color: green;
-            font-weight: bold;
-        }
-
-        .failed {
-            color: red;
-            font-weight: bold;
-        }
-
-        .skipped {
-            color: orange;
-            font-weight: bold;
-        }
-
-        .link-btn {
-            display: inline-block;
-            margin-top: 10px;
-            background: #2563eb;
-            color: white;
-            text-decoration: none;
-            padding: 8px 12px;
-            border-radius: 6px;
         }
     </style>
 </head>
-
 <body>
-
     <h1>🛍 Product Sync Center</h1>
     <p>Shopify 多品牌商品同步系統</p>
 
-    <div class="card">
-        <h2>① Webhook 自動同步開關</h2>
+    <button onclick="runSync()">🚀 開始同步</button>
 
-        <div id="webhookStatus" class="status">
-            讀取中...
-        </div>
-
-        <button onclick="setWebhook(true)">
-            開啟自動同步
-        </button>
-
-        <button class="off" onclick="setWebhook(false)">
-            關閉自動同步
-        </button>
-
-        <p>關閉後，Shopify 仍會送 Webhook，但系統不會自動執行同步。</p>
-    </div>
-
-    <div class="card">
-        <h2>② 手動同步</h2>
-
-        <button onclick="runSync()">
-            🚀 手動同步商品
-        </button>
-    </div>
-
-    <div class="card">
-        <h2>③ 同步結果</h2>
-
-        <div class="summary">
-            <div class="summary-box">
-                ✅ 成功：<span id="successCount">0</span>
-            </div>
-
-            <div class="summary-box">
-                ⏭️ 略過：<span id="skippedCount">0</span>
-            </div>
-
-            <div class="summary-box">
-                ❌ 失敗：<span id="failedCount">0</span>
-            </div>
-        </div>
-
-        <div id="productCards" class="product-grid">
-            <p>尚未執行同步</p>
-        </div>
-    </div>
-
+    <h2>同步結果</h2>
     <pre id="result">尚未執行</pre>
 
     <script>
-        async function loadWebhookStatus() {
-            try {
-                const response = await fetch("/webhook/status");
-                const data = await response.json();
+        async function runSync() {
+            document.getElementById("result").textContent = "同步中...";
 
-                document.getElementById("webhookStatus").textContent =
-                    data.enabled
-                        ? "目前狀態：✅ 自動同步已開啟"
-                        : "目前狀態：⏸️ 自動同步已關閉";
-
-            } catch (error) {
-                document.getElementById("webhookStatus").textContent =
-                    "讀取狀態失敗";
-            }
-        }
-
-        async function setWebhook(enabled) {
-            const response = await fetch("/webhook/toggle", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({
-                    enabled: enabled
-                })
+            const response = await fetch("http://127.0.0.1:8000/sync", {
+                method: "POST"
             });
 
             const data = await response.json();
-
-            document.getElementById("webhookStatus").textContent =
-                data.enabled
-                    ? "目前狀態：✅ 自動同步已開啟"
-                    : "目前狀態：⏸️ 自動同步已關閉";
+            document.getElementById("result").textContent =
+                data.stdout || JSON.stringify(data, null, 2);
         }
-
-        function getStatusText(status) {
-            if (status === "success") return "✅ 成功";
-            if (status === "failed") return "❌ 失敗";
-            if (status === "skipped") return "⏭️ 略過";
-            return status;
-        }
-
-        function getStatusClass(status) {
-            if (status === "success") return "success";
-            if (status === "failed") return "failed";
-            if (status === "skipped") return "skipped";
-            return "";
-        }
-
-        async function runSync() {
-            document.getElementById("productCards").innerHTML =
-                "<p>同步中...</p>";
-
-            document.getElementById("result").textContent = "同步中...";
-
-            try {
-                const response = await fetch("/sync", {
-                    method: "POST"
-                });
-
-                const data = await response.json();
-
-                document.getElementById("successCount").textContent =
-                    data.summary?.success || 0;
-
-                document.getElementById("skippedCount").textContent =
-                    data.summary?.skipped || 0;
-
-                document.getElementById("failedCount").textContent =
-                    data.summary?.failed || 0;
-
-                document.getElementById("result").textContent =
-                    data.stdout || JSON.stringify(data, null, 2);
-
-                const productCards = document.getElementById("productCards");
-                productCards.innerHTML = "";
-
-                if (!data.results || data.results.length === 0) {
-                    productCards.innerHTML = "<p>沒有同步商品資料。</p>";
-                    return;
-                }
-
-                data.results.forEach(item => {
-                    const image = item.image ||
-                        "https://cdn.shopify.com/s/files/1/0533/2089/files/placeholder-images-image_large.png";
-
-                    const productUrl = item.product_url || "#";
-
-                    productCards.innerHTML += `
-                        <div class="product-card">
-                            <img src="${image}" alt="${item.title}">
-                            <div class="product-content">
-                                <strong>${item.title}</strong>
-                                <div>品牌：${item.vendor || "-"}</div>
-                                <div>目標商店：${item.target_shop || "-"}</div>
-                                <div class="${getStatusClass(item.status)}">
-                                    狀態：${getStatusText(item.status)}
-                                </div>
-                                <div>訊息：${item.message || ""}</div>
-                                ${
-                                    productUrl !== "#"
-                                    ? `<a class="link-btn" href="${productUrl}" target="_blank">查看商品</a>`
-                                    : ""
-                                }
-                            </div>
-                        </div>
-                    `;
-                });
-
-            } catch (error) {
-                document.getElementById("productCards").innerHTML =
-                    "<p>同步失敗。</p>";
-
-                document.getElementById("result").textContent =
-                    "同步失敗：\\n" + error;
-            }
-        }
-
-        loadWebhookStatus();
     </script>
-
 </body>
 </html>
