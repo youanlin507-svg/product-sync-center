@@ -13,6 +13,7 @@ app = FastAPI(title="Product Sync Center")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SYNC_FILE = os.path.join(BASE_DIR, "sync_products.py")
+WEBHOOK_SETTING_FILE = os.path.join(BASE_DIR, "webhook_setting.json")
 
 app.add_middleware(
     CORSMiddleware,
@@ -23,20 +24,21 @@ app.add_middleware(
 )
 
 
-# =========================
-# Webhook 自動同步開關
-# Render Environment 設定：
-# WEBHOOK_AUTO_SYNC_ENABLED=true  開啟
-# WEBHOOK_AUTO_SYNC_ENABLED=false 關閉
-# =========================
+def get_webhook_setting():
+    if not os.path.exists(WEBHOOK_SETTING_FILE):
+        return True
 
-def is_webhook_auto_sync_enabled():
-    value = os.getenv(
-        "WEBHOOK_AUTO_SYNC_ENABLED",
-        "true"
-    )
+    try:
+        with open(WEBHOOK_SETTING_FILE, "r", encoding="utf-8") as file:
+            data = json.load(file)
+            return data.get("enabled", True)
+    except Exception:
+        return True
 
-    return value.lower() == "true"
+
+def set_webhook_setting(enabled: bool):
+    with open(WEBHOOK_SETTING_FILE, "w", encoding="utf-8") as file:
+        json.dump({"enabled": enabled}, file, ensure_ascii=False)
 
 
 def verify_shopify_webhook(raw_body: bytes, hmac_header: str) -> bool:
@@ -183,6 +185,11 @@ button {
     border-radius: 8px;
     font-size: 18px;
     cursor: pointer;
+    margin-right: 10px;
+}
+
+button.off {
+    background: #d72c0d;
 }
 
 .summary {
@@ -265,6 +272,12 @@ pre {
     white-space: pre-wrap;
     font-size: 14px;
 }
+
+.webhook-status {
+    font-size: 20px;
+    font-weight: bold;
+    margin-bottom: 14px;
+}
 </style>
 </head>
 
@@ -317,12 +330,20 @@ pre {
 </div>
 
 <div class="card">
-    <button onclick="runSync()">🚀 手動同步商品</button>
-    <p>Webhook 自動同步可用 Render 環境變數 WEBHOOK_AUTO_SYNC_ENABLED 開啟或關閉。</p>
+    <h2>④ Webhook 自動同步開關</h2>
+    <div id="webhookStatus" class="webhook-status">讀取中...</div>
+    <button onclick="setWebhook(true)">開啟自動同步</button>
+    <button class="off" onclick="setWebhook(false)">關閉自動同步</button>
+    <p>關閉後，Shopify 仍會送 Webhook，但系統不會自動執行同步。</p>
 </div>
 
 <div class="card">
-    <h2>④ 同步結果</h2>
+    <h2>⑤ 手動同步</h2>
+    <button onclick="runSync()">🚀 手動同步商品</button>
+</div>
+
+<div class="card">
+    <h2>⑥ 同步結果</h2>
 
     <div class="summary">
         <div class="summary-box">✅ 成功：<span id="successCount">0</span></div>
@@ -336,7 +357,7 @@ pre {
 </div>
 
 <div class="card">
-    <h2>⑤ 原始同步輸出</h2>
+    <h2>⑦ 原始同步輸出</h2>
     <pre id="rawOutput">尚未執行同步</pre>
 </div>
 
@@ -371,6 +392,31 @@ function statusClass(status) {
     if (status === "skipped") return "status-skipped";
     if (status === "failed") return "status-failed";
     return "";
+}
+
+async function loadWebhookStatus() {
+    const response = await fetch("/webhook/status");
+    const data = await response.json();
+
+    document.getElementById("webhookStatus").textContent =
+        data.enabled ? "目前狀態：✅ 自動同步已開啟" : "目前狀態：⏸️ 自動同步已關閉";
+}
+
+async function setWebhook(enabled) {
+    const response = await fetch("/webhook/toggle", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            enabled: enabled
+        })
+    });
+
+    const data = await response.json();
+
+    document.getElementById("webhookStatus").textContent =
+        data.enabled ? "目前狀態：✅ 自動同步已開啟" : "目前狀態：⏸️ 自動同步已關閉";
 }
 
 async function runSync() {
@@ -427,11 +473,32 @@ async function runSync() {
 }
 
 generateRules();
+loadWebhookStatus();
 </script>
 
 </body>
 </html>
 """
+
+
+@app.get("/webhook/status")
+def webhook_status():
+    return {
+        "enabled": get_webhook_setting()
+    }
+
+
+@app.post("/webhook/toggle")
+async def webhook_toggle(request: Request):
+    body = await request.json()
+    enabled = body.get("enabled", True)
+
+    set_webhook_setting(bool(enabled))
+
+    return {
+        "success": True,
+        "enabled": get_webhook_setting()
+    }
 
 
 @app.post("/sync")
@@ -459,7 +526,7 @@ async def product_create_webhook(request: Request):
 
     print("✅ Product Create Webhook HMAC 驗證成功")
 
-    if not is_webhook_auto_sync_enabled():
+    if not get_webhook_setting():
         print("⏸️ Webhook 自動同步已關閉")
         return JSONResponse({
             "success": True,
@@ -496,7 +563,7 @@ async def product_update_webhook(request: Request):
 
     print("✅ Product Update Webhook HMAC 驗證成功")
 
-    if not is_webhook_auto_sync_enabled():
+    if not get_webhook_setting():
         print("⏸️ Webhook 自動同步已關閉")
         return JSONResponse({
             "success": True,
@@ -520,6 +587,6 @@ def health():
         "app": "Product Sync Center",
         "status": "running",
         "webhook": "enabled",
-        "webhook_auto_sync_enabled": is_webhook_auto_sync_enabled(),
+        "webhook_auto_sync_enabled": get_webhook_setting(),
         "sync_file": SYNC_FILE
     }
