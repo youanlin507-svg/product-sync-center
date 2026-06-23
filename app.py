@@ -440,23 +440,50 @@ async function setWebhook(enabled) {
         data.enabled ? "目前狀態：✅ 自動同步已開啟" : "目前狀態：⏸️ 自動同步已關閉";
 }
 
+function toggleRules() {
+    const checked = document.querySelectorAll(
+        '.checkbox-group input[type="checkbox"]:checked'
+    );
+
+    let rules = [];
+
+    checked.forEach(item => {
+        rules.push(item.dataset.brand + " → " + item.value);
+    });
+
+    const message =
+        rules.length > 0
+            ? "目前同步規則：\\n\\n" + rules.join("\\n")
+            : "目前沒有勾選任何品牌";
+
+    alert(message);
+}
+
 async function runSync() {
     const productCards = document.getElementById("productCards");
     const rawOutput = document.getElementById("rawOutput");
 
     productCards.innerHTML = "<p>同步中，請稍候...</p>";
+
     if (rawOutput) {
         rawOutput.textContent = "同步中，請稍候...";
     }
 
     try {
-        const response = await fetch("/sync", { method: "POST" });
+        const response = await fetch("/sync", {
+            method: "POST"
+        });
+
         const data = await response.json();
 
-        document.getElementById("successCount").textContent = data.summary.success || 0;
-        document.getElementById("skippedCount").textContent = data.summary.skipped || 0;
-        document.getElementById("failedCount").textContent = data.summary.failed || 0;
+        document.getElementById("successCount").textContent =
+            data.summary.success || 0;
 
+        document.getElementById("skippedCount").textContent =
+            data.summary.skipped || 0;
+
+        document.getElementById("failedCount").textContent =
+            data.summary.failed || 0;
         if (rawOutput) {
             rawOutput.textContent =
                 "執行狀態：" + (data.success ? "成功" : "失敗") + "\\n\\n" +
