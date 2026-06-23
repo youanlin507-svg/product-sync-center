@@ -14,6 +14,7 @@ app = FastAPI(title="Product Sync Center")
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SYNC_FILE = os.path.join(BASE_DIR, "sync_products.py")
 WEBHOOK_SETTING_FILE = os.path.join(BASE_DIR, "webhook_setting.json")
+BRAND_RULES_FILE = os.path.join(BASE_DIR, "brand_rules.json")
 
 app.add_middleware(
     CORSMiddleware,
@@ -22,6 +23,31 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+DEFAULT_BRAND_RULES = {
+    "DESCENTE": ["target-demo-1-74h5qyuh.myshopify.com"],
+    "GFORE": ["target-demo-1-74h5qyuh.myshopify.com"],
+    "2XU": ["target-demo-1-74h5qyuh.myshopify.com"],
+    "CALLAWAY": ["target-demo-1-74h5qyuh.myshopify.com"],
+    "ASH": []
+}
+
+
+def get_brand_rules():
+    if not os.path.exists(BRAND_RULES_FILE):
+        return DEFAULT_BRAND_RULES
+
+    try:
+        with open(BRAND_RULES_FILE, "r", encoding="utf-8") as file:
+            return json.load(file)
+    except Exception:
+        return DEFAULT_BRAND_RULES
+
+
+def set_brand_rules(rules):
+    with open(BRAND_RULES_FILE, "w", encoding="utf-8") as file:
+        json.dump(rules, file, ensure_ascii=False, indent=2)
 
 
 def get_webhook_setting():
@@ -147,10 +173,6 @@ body {
     border: 1px solid #ddd;
 }
 
-.hidden-card {
-    display: none;
-}
-
 h1 {
     font-size: 32px;
     margin-bottom: 8px;
@@ -160,7 +182,7 @@ h2 {
     margin-top: 0;
 }
 
-select, textarea {
+input, select, textarea {
     width: 100%;
     padding: 12px;
     font-size: 16px;
@@ -168,17 +190,16 @@ select, textarea {
     border-radius: 6px;
 }
 
-.checkbox-group {
+.rule-row {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    grid-template-columns: 180px 1fr;
     gap: 12px;
+    align-items: center;
+    margin-bottom: 14px;
 }
 
-.checkbox-item {
-    background: #f9fafb;
-    padding: 12px;
-    border: 1px solid #ddd;
-    border-radius: 8px;
+.rule-brand {
+    font-weight: bold;
 }
 
 button {
@@ -190,10 +211,15 @@ button {
     font-size: 18px;
     cursor: pointer;
     margin-right: 10px;
+    margin-top: 8px;
 }
 
 button.off {
     background: #d72c0d;
+}
+
+button.gray {
+    background: #4b5563;
 }
 
 .summary {
@@ -268,19 +294,19 @@ button.off {
     border-radius: 6px;
 }
 
-pre {
-    background: #111827;
-    color: #10b981;
-    padding: 20px;
-    border-radius: 8px;
-    white-space: pre-wrap;
-    font-size: 14px;
-}
-
 .webhook-status {
     font-size: 20px;
     font-weight: bold;
     margin-bottom: 14px;
+}
+
+.note {
+    color: #6b7280;
+    font-size: 14px;
+}
+
+#rawOutput {
+    display: none;
 }
 </style>
 </head>
@@ -304,33 +330,36 @@ pre {
 </div>
 
 <div class="card">
-    <h2>② 目標商店（可多選）</h2>
-    <div class="checkbox-group">
-        <label class="checkbox-item">
-            <input type="checkbox" checked data-brand="DESCENTE" value="target-demo-1-74h5qyuh.myshopify.com">
-            DESCENTE（測試）
-        </label>
+    <h2>② 品牌同步規則</h2>
+    <p class="note">每個品牌可以設定一個或多個目標商店，若有多個商店請用逗號分隔。</p>
 
-        <label class="checkbox-item">
-            <input type="checkbox" checked data-brand="GFORE" value="target-demo-1-74h5qyuh.myshopify.com">
-            G/FORE（測試）
-        </label>
-
-        <label class="checkbox-item">
-            <input type="checkbox" checked data-brand="2XU" value="target-demo-1-74h5qyuh.myshopify.com">
-            2XU（測試）
-        </label>
-
-        <label class="checkbox-item">
-            <input type="checkbox" checked data-brand="CALLAWAY" value="target-demo-1-74h5qyuh.myshopify.com">
-            CALLAWAY（測試）
-        </label>
+    <div class="rule-row">
+        <div class="rule-brand">DESCENTE</div>
+        <input id="rule_DESCENTE" placeholder="target-demo-1-74h5qyuh.myshopify.com">
     </div>
-</div>
 
-<div class="card hidden-card">
-    <h2>③ 品牌同步規則（自動產生）</h2>
-    <textarea id="brandRules" rows="6" readonly></textarea>
+    <div class="rule-row">
+        <div class="rule-brand">G/FORE</div>
+        <input id="rule_GFORE" placeholder="target-demo-1-74h5qyuh.myshopify.com">
+    </div>
+
+    <div class="rule-row">
+        <div class="rule-brand">2XU</div>
+        <input id="rule_2XU" placeholder="target-demo-1-74h5qyuh.myshopify.com">
+    </div>
+
+    <div class="rule-row">
+        <div class="rule-brand">CALLAWAY</div>
+        <input id="rule_CALLAWAY" placeholder="target-demo-1-74h5qyuh.myshopify.com">
+    </div>
+
+    <div class="rule-row">
+        <div class="rule-brand">ASH</div>
+        <input id="rule_ASH" placeholder="可留空，或填目標商店">
+    </div>
+
+    <button onclick="saveBrandRules()">💾 儲存品牌規則</button>
+    <button class="gray" onclick="showBrandRules()">📋 查看同步規則</button>
 </div>
 
 <div class="card">
@@ -339,21 +368,6 @@ pre {
     <button onclick="setWebhook(true)">開啟自動同步</button>
     <button class="off" onclick="setWebhook(false)">關閉自動同步</button>
     <p>關閉後，Shopify 仍會送 Webhook，但系統不會自動執行同步。</p>
-    <br>
-
-<button onclick="toggleRules()">
-    📋 查看同步規則
-</button>
-
-<div id="rulesBox" style="display:none; margin-top:16px;">
-    <pre id="rulesText" style="
-        background:#111827;
-        color:#10b981;
-        padding:16px;
-        border-radius:8px;
-        white-space:pre-wrap;
-    ">尚未產生規則</pre>
-</div>
 </div>
 
 <div class="card">
@@ -375,44 +389,79 @@ pre {
     </div>
 </div>
 
-<div class="card hidden-card">
-    <h2>⑦ 原始同步輸出</h2>
-    <pre id="rawOutput">尚未執行同步</pre>
-</div>
+<pre id="rawOutput">尚未執行同步</pre>
 
 </div>
 
 <script>
-function generateRules() {
-    const checked = document.querySelectorAll('.checkbox-group input[type="checkbox"]:checked');
-    let rules = [];
+const BRANDS = ["DESCENTE", "GFORE", "2XU", "CALLAWAY", "ASH"];
 
-    checked.forEach(item => {
-        rules.push(item.dataset.brand + " -> " + item.value);
+function splitStores(value) {
+    return value
+        .split(",")
+        .map(item => item.trim())
+        .filter(item => item.length > 0);
+}
+
+async function loadBrandRules() {
+    const response = await fetch("/brand-rules/status");
+    const data = await response.json();
+
+    const rules = data.rules || {};
+
+    BRANDS.forEach(brand => {
+        const input = document.getElementById("rule_" + brand);
+        if (input) {
+            input.value = (rules[brand] || []).join(", ");
+        }
+    });
+}
+
+async function saveBrandRules() {
+    let rules = {};
+
+    BRANDS.forEach(brand => {
+        const input = document.getElementById("rule_" + brand);
+        rules[brand] = splitStores(input.value || "");
     });
 
-    const brandRules = document.getElementById("brandRules");
-    if (brandRules) {
-        brandRules.value = rules.length > 0 ? rules.join("\\n") : "尚未選擇目標商店";
+    const response = await fetch("/brand-rules/save", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            rules: rules
+        })
+    });
+
+    const data = await response.json();
+
+    if (data.success) {
+        alert("品牌同步規則已儲存");
+    } else {
+        alert("儲存失敗");
     }
 }
 
-document.querySelectorAll('.checkbox-group input[type="checkbox"]').forEach(item => {
-    item.addEventListener("change", generateRules);
-});
+function showBrandRules() {
+    let rules = [];
 
-function statusText(status) {
-    if (status === "success") return "✅ 成功";
-    if (status === "skipped") return "⏭️ 已存在 / 略過";
-    if (status === "failed") return "❌ 失敗";
-    return status;
-}
+    BRANDS.forEach(brand => {
+        const input = document.getElementById("rule_" + brand);
+        const stores = splitStores(input.value || "");
 
-function statusClass(status) {
-    if (status === "success") return "status-success";
-    if (status === "skipped") return "status-skipped";
-    if (status === "failed") return "status-failed";
-    return "";
+        if (stores.length > 0) {
+            rules.push(brand + " → " + stores.join(", "));
+        }
+    });
+
+    const message =
+        rules.length > 0
+            ? "目前同步規則：\\n\\n" + rules.join("\\n")
+            : "目前沒有設定任何品牌同步規則";
+
+    alert(message);
 }
 
 async function loadWebhookStatus() {
@@ -440,23 +489,18 @@ async function setWebhook(enabled) {
         data.enabled ? "目前狀態：✅ 自動同步已開啟" : "目前狀態：⏸️ 自動同步已關閉";
 }
 
-function toggleRules() {
-    const checked = document.querySelectorAll(
-        '.checkbox-group input[type="checkbox"]:checked'
-    );
+function statusText(status) {
+    if (status === "success") return "✅ 成功";
+    if (status === "skipped") return "⏭️ 已存在 / 略過";
+    if (status === "failed") return "❌ 失敗";
+    return status;
+}
 
-    let rules = [];
-
-    checked.forEach(item => {
-        rules.push(item.dataset.brand + " → " + item.value);
-    });
-
-    const message =
-        rules.length > 0
-            ? "目前同步規則：\\n\\n" + rules.join("\\n")
-            : "目前沒有勾選任何品牌";
-
-    alert(message);
+function statusClass(status) {
+    if (status === "success") return "status-success";
+    if (status === "skipped") return "status-skipped";
+    if (status === "failed") return "status-failed";
+    return "";
 }
 
 async function runSync() {
@@ -470,20 +514,13 @@ async function runSync() {
     }
 
     try {
-        const response = await fetch("/sync", {
-            method: "POST"
-        });
-
+        const response = await fetch("/sync", { method: "POST" });
         const data = await response.json();
 
-        document.getElementById("successCount").textContent =
-            data.summary.success || 0;
+        document.getElementById("successCount").textContent = data.summary.success || 0;
+        document.getElementById("skippedCount").textContent = data.summary.skipped || 0;
+        document.getElementById("failedCount").textContent = data.summary.failed || 0;
 
-        document.getElementById("skippedCount").textContent =
-            data.summary.skipped || 0;
-
-        document.getElementById("failedCount").textContent =
-            data.summary.failed || 0;
         if (rawOutput) {
             rawOutput.textContent =
                 "執行狀態：" + (data.success ? "成功" : "失敗") + "\\n\\n" +
@@ -527,13 +564,42 @@ async function runSync() {
     }
 }
 
-generateRules();
+loadBrandRules();
 loadWebhookStatus();
 </script>
 
 </body>
 </html>
 """
+
+
+@app.get("/brand-rules/status")
+def brand_rules_status():
+    return {
+        "rules": get_brand_rules()
+    }
+
+
+@app.post("/brand-rules/save")
+async def brand_rules_save(request: Request):
+    body = await request.json()
+    rules = body.get("rules", {})
+
+    cleaned_rules = {}
+
+    for brand, stores in rules.items():
+        cleaned_rules[brand.upper()] = [
+            store.strip()
+            for store in stores
+            if isinstance(store, str) and store.strip()
+        ]
+
+    set_brand_rules(cleaned_rules)
+
+    return {
+        "success": True,
+        "rules": get_brand_rules()
+    }
 
 
 @app.get("/webhook/status")
@@ -643,5 +709,6 @@ def health():
         "status": "running",
         "webhook": "enabled",
         "webhook_auto_sync_enabled": get_webhook_setting(),
+        "brand_rules": get_brand_rules(),
         "sync_file": SYNC_FILE
     }
