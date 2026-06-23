@@ -499,6 +499,92 @@ function statusClass(status) {
     return "";
 }
 
+async function loadProducts() {
+
+    const container =
+        document.getElementById("productSelector");
+
+    container.innerHTML = "載入中...";
+
+    const response =
+        await fetch("/products/list");
+
+    const data =
+        await response.json();
+
+    let html = "";
+
+    data.products.forEach(product => {
+
+        html += `
+        <div style="
+            padding:10px;
+            border:1px solid #ddd;
+            border-radius:8px;
+            margin-bottom:8px;
+        ">
+            <label>
+                <input
+                    type="checkbox"
+                    value="${product.id}"
+                    class="productCheck"
+                >
+                ${product.title}
+                (${product.vendor})
+            </label>
+        </div>
+        `;
+    });
+
+    html += `
+    <button onclick="syncSelectedProducts()">
+        🚀 同步勾選商品
+    </button>
+    `;
+
+    container.innerHTML = html;
+}
+
+
+async function syncSelectedProducts() {
+
+    const checks =
+        document.querySelectorAll(
+            ".productCheck:checked"
+        );
+
+    const productIds =
+        [...checks].map(x => x.value);
+
+    if(productIds.length === 0){
+
+        alert("請先勾選商品");
+
+        return;
+    }
+
+    const response =
+        await fetch("/sync-selected", {
+
+            method: "POST",
+
+            headers: {
+                "Content-Type": "application/json"
+            },
+
+            body: JSON.stringify({
+                product_ids: productIds
+            })
+        });
+
+    const data =
+        await response.json();
+
+    alert(
+        "同步完成\\n成功：" +
+        data.summary.success
+    );
+}
 async function runSync() {
     const productCards = document.getElementById("productCards");
     const rawOutput = document.getElementById("rawOutput");
@@ -618,6 +704,68 @@ async def webhook_toggle(request: Request):
     }
 
 
+@app.get("/products/list")
+def get_products():
+
+    import requests
+
+    url = f"https://{MASTER_SHOP}/admin/api/{API_VERSION}/products.json?limit=250"
+
+    response = requests.get(
+        url,
+        headers={
+            "X-Shopify-Access-Token": MASTER_TOKEN,
+            "Content-Type": "application/json"
+        }
+    )
+
+    response.raise_for_status()
+
+    products = response.json().get("products", [])
+
+    result = []
+
+    for product in products:
+        result.append({
+            "id": product["id"],
+            "title": product["title"],
+            "vendor": product.get("vendor", ""),
+            "status": product.get("status", ""),
+            "image": (
+                product["images"][0]["src"]
+                if product.get("images")
+                else ""
+            )
+        })
+
+    return {
+        "success": True,
+        "products": result
+    }
+
+
+@app.post("/sync-selected")
+async def sync_selected(request: Request):
+
+    body = await request.json()
+
+    product_ids = body.get("product_ids", [])
+
+    with open(
+        "selected_products.json",
+        "w",
+        encoding="utf-8"
+    ) as file:
+
+        json.dump(
+            product_ids,
+            file,
+            ensure_ascii=False
+        )
+
+    return JSONResponse(
+        run_sync_script()
+    )
 @app.post("/sync")
 def manual_sync():
     print("🖱️ 手動同步被觸發")
