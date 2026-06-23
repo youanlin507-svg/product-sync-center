@@ -30,7 +30,7 @@ DEFAULT_BRAND_RULES = {
     "GFORE": ["target-demo-1-74h5qyuh.myshopify.com"],
     "2XU": ["target-demo-1-74h5qyuh.myshopify.com"],
     "CALLAWAY": ["target-demo-1-74h5qyuh.myshopify.com"],
-    "ASH": []
+ 
 }
 
 
@@ -353,10 +353,6 @@ button.gray {
         <input id="rule_CALLAWAY" placeholder="target-demo-1-74h5qyuh.myshopify.com">
     </div>
 
-    <div class="rule-row">
-        <div class="rule-brand">ASH</div>
-        <input id="rule_ASH" placeholder="可留空，或填目標商店">
-    </div>
 
     <button onclick="saveBrandRules()">💾 儲存品牌規則</button>
     <button class="gray" onclick="showBrandRules()">📋 查看同步規則</button>
@@ -394,7 +390,7 @@ button.gray {
 </div>
 
 <script>
-const BRANDS = ["DESCENTE", "GFORE", "2XU", "CALLAWAY", "ASH"];
+const BRANDS = ["DESCENTE", "GFORE", "2XU", "CALLAWAY"];
 
 function splitStores(value) {
     return value
