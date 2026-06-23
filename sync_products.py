@@ -11,10 +11,15 @@ API_VERSION = "2024-04"
 MASTER_SHOP = os.getenv("MASTER_SHOP")
 MASTER_TOKEN = os.getenv("MASTER_TOKEN")
 
-SIZE_CHART_NAMESPACE = os.getenv("SIZE_CHART_NAMESPACE", "custom")
-SIZE_CHART_KEY = os.getenv("SIZE_CHART_KEY", "size_chart")
-
 SYNC_RESULTS = []
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BRAND_RULES_FILE = os.path.join(BASE_DIR, "brand_rules.json")
+
+# =========================
+# 預設品牌同步商店設定
+# 如果沒有 brand_rules.json，才會使用這裡
+# =========================
 
 BRAND_STORE_MAP = {
     "DESCENTE": os.getenv("BRAND_DESCENTE_STORES", ""),
@@ -26,12 +31,48 @@ BRAND_STORE_MAP = {
 }
 
 
+# =========================
+# 讀取品牌規則
+# =========================
+
+def get_brand_store_map():
+    if os.path.exists(BRAND_RULES_FILE):
+        try:
+            with open(BRAND_RULES_FILE, "r", encoding="utf-8") as file:
+                rules = json.load(file)
+
+            brand_map = {}
+
+            for brand, stores in rules.items():
+                if isinstance(stores, list):
+                    brand_map[brand.upper()] = ",".join(stores)
+
+            if brand_map:
+                print("✅ 使用 brand_rules.json 品牌同步規則")
+                return brand_map
+
+        except Exception as error:
+            print("⚠️ 讀取 brand_rules.json 失敗，改用環境變數")
+            print(str(error))
+
+    print("ℹ️ 使用 Render Environment 品牌同步規則")
+    return BRAND_STORE_MAP
+
+
+# =========================
+# Shopify Headers
+# =========================
+
 def shopify_headers(token):
     return {
         "X-Shopify-Access-Token": token,
-        "Content-Type": "application/json",
+        "Content-Type": "application/json"
     }
 
+
+# =========================
+# 取得商店 Token
+# =========================
 
 def get_target_token(shop):
     env_key = (
@@ -41,10 +82,23 @@ def get_target_token(shop):
         .upper()
         + "_TOKEN"
     )
+
     return os.getenv(env_key)
 
 
-def add_result(title, vendor, target_shop, status, message, image="", product_url=""):
+# =========================
+# 加入同步結果
+# =========================
+
+def add_result(
+    title,
+    vendor,
+    target_shop,
+    status,
+    message,
+    image="",
+    product_url=""
+):
     SYNC_RESULTS.append({
         "title": title,
         "vendor": vendor,
@@ -52,51 +106,37 @@ def add_result(title, vendor, target_shop, status, message, image="", product_ur
         "status": status,
         "message": message,
         "image": image,
-        "product_url": product_url,
+        "product_url": product_url
     })
 
 
-def normalize_vendor(vendor):
-    return (vendor or "").strip().upper()
-
-
-def get_first_image(product):
-    if product.get("images"):
-        return product["images"][0].get("src", "")
-    return ""
-
-
-def get_product_admin_url(shop, product_id):
-    return (
-        f"https://admin.shopify.com/store/"
-        f"{shop.replace('.myshopify.com', '')}"
-        f"/products/{product_id}"
-    )
-
+# =========================
+# 取得主商店商品
+# =========================
 
 def get_master_products():
     url = f"https://{MASTER_SHOP}/admin/api/{API_VERSION}/products.json?limit=250"
-    response = requests.get(url, headers=shopify_headers(MASTER_TOKEN))
+
+    response = requests.get(
+        url,
+        headers=shopify_headers(MASTER_TOKEN)
+    )
+
     response.raise_for_status()
+
     return response.json().get("products", [])
 
 
+# =========================
+# 尋找商品
+# =========================
+
 def find_product_by_title(shop, token, title):
     encoded_title = quote(title)
+
     url = (
         f"https://{shop}/admin/api/{API_VERSION}/products.json"
         f"?title={encoded_title}&limit=1"
-    )
-    response = requests.get(url, headers=shopify_headers(token))
-    response.raise_for_status()
-    products = response.json().get("products", [])
-    return products[0] if products else None
-
-
-def get_product_metafields(shop, token, product_id):
-    url = (
-        f"https://{shop}/admin/api/{API_VERSION}/products/"
-        f"{product_id}/metafields.json"
     )
 
     response = requests.get(
@@ -106,111 +146,14 @@ def get_product_metafields(shop, token, product_id):
 
     response.raise_for_status()
 
-    return response.json().get("metafields", [])
+    products = response.json().get("products", [])
+
+    return products[0] if products else None
 
 
-def get_size_chart_metafield(shop, token, product_id):
-    metafields = get_product_metafields(shop, token, product_id)
-
-    for metafield in metafields:
-        if (
-            metafield.get("namespace") == SIZE_CHART_NAMESPACE
-            and metafield.get("key") == SIZE_CHART_KEY
-        ):
-            return metafield
-
-    return None
-
-
-def create_product_metafield(shop, token, product_id, metafield):
-    url = (
-        f"https://{shop}/admin/api/{API_VERSION}/products/"
-        f"{product_id}/metafields.json"
-    )
-
-    payload = {
-        "metafield": {
-            "namespace": metafield.get("namespace"),
-            "key": metafield.get("key"),
-            "value": metafield.get("value"),
-            "type": metafield.get("type", "multi_line_text_field"),
-        }
-    }
-
-    response = requests.post(
-        url,
-        headers=shopify_headers(token),
-        json=payload
-    )
-
-    if not response.ok:
-        print("⚠️ 新增尺寸表失敗")
-        print(response.text)
-
-    response.raise_for_status()
-
-
-def update_product_metafield(shop, token, metafield_id, metafield):
-    url = f"https://{shop}/admin/api/{API_VERSION}/metafields/{metafield_id}.json"
-
-    payload = {
-        "metafield": {
-            "id": metafield_id,
-            "value": metafield.get("value"),
-            "type": metafield.get("type", "multi_line_text_field"),
-        }
-    }
-
-    response = requests.put(
-        url,
-        headers=shopify_headers(token),
-        json=payload
-    )
-
-    if not response.ok:
-        print("⚠️ 更新尺寸表失敗")
-        print(response.text)
-
-    response.raise_for_status()
-
-
-def sync_size_chart(source_product, target_shop, target_token, target_product_id):
-    source_size_chart = get_size_chart_metafield(
-        MASTER_SHOP,
-        MASTER_TOKEN,
-        source_product["id"]
-    )
-
-    if not source_size_chart:
-        print("ℹ️ 來源商品沒有尺寸表，略過")
-        return "無尺寸表"
-
-    target_size_chart = get_size_chart_metafield(
-        target_shop,
-        target_token,
-        target_product_id
-    )
-
-    if target_size_chart:
-        update_product_metafield(
-            target_shop,
-            target_token,
-            target_size_chart["id"],
-            source_size_chart
-        )
-        print("📏 尺寸表已更新")
-        return "尺寸表已更新"
-
-    create_product_metafield(
-        target_shop,
-        target_token,
-        target_product_id,
-        source_size_chart
-    )
-
-    print("📏 尺寸表已新增")
-    return "尺寸表已新增"
-
+# =========================
+# 建立商品圖片
+# =========================
 
 def build_images(product):
     images = []
@@ -219,7 +162,9 @@ def build_images(product):
         src = image.get("src")
 
         if src:
-            image_data = {"src": src}
+            image_data = {
+                "src": src
+            }
 
             if image.get("alt"):
                 image_data["alt"] = image.get("alt")
@@ -228,6 +173,10 @@ def build_images(product):
 
     return images
 
+
+# =========================
+# 商品變體同步
+# =========================
 
 def build_variants(product):
     variants = []
@@ -246,7 +195,7 @@ def build_variants(product):
             "weight": variant.get("weight"),
             "weight_unit": variant.get("weight_unit"),
             "taxable": variant.get("taxable"),
-            "requires_shipping": variant.get("requires_shipping"),
+            "requires_shipping": variant.get("requires_shipping")
         }
 
         cleaned = {
@@ -260,6 +209,10 @@ def build_variants(product):
     return variants
 
 
+# =========================
+# 商品 Options
+# =========================
+
 def build_options(product):
     options = []
 
@@ -267,10 +220,16 @@ def build_options(product):
         name = option.get("name")
 
         if name:
-            options.append({"name": name})
+            options.append({
+                "name": name
+            })
 
     return options
 
+
+# =========================
+# Tags 處理
+# =========================
 
 def build_tags(product, vendor):
     tags = []
@@ -280,6 +239,7 @@ def build_tags(product, vendor):
     if raw_tags:
         for tag in raw_tags.split(","):
             tag = tag.strip()
+
             if tag:
                 tags.append(tag)
 
@@ -293,6 +253,7 @@ def build_tags(product, vendor):
             .replace(" ", "-")
             .replace("_", "-")
         )
+
         tags.append(vendor_tag)
 
     unique_tags = []
@@ -303,6 +264,10 @@ def build_tags(product, vendor):
 
     return ", ".join(unique_tags)
 
+
+# =========================
+# 建立商品資料
+# =========================
 
 def build_product_data(product):
     vendor = product.get("vendor", "")
@@ -316,9 +281,13 @@ def build_product_data(product):
         "images": build_images(product),
         "variants": build_variants(product),
         "options": build_options(product),
-        "status": product.get("status", "draft"),
+        "status": product.get("status", "draft")
     }
 
+
+# =========================
+# 建立商品
+# =========================
 
 def create_product(shop, token, product_data):
     url = f"https://{shop}/admin/api/{API_VERSION}/products.json"
@@ -333,7 +302,7 @@ def create_product(shop, token, product_data):
             "status": product_data["status"],
             "images": product_data["images"],
             "variants": product_data["variants"],
-            "options": product_data["options"],
+            "options": product_data["options"]
         }
     }
 
@@ -348,6 +317,10 @@ def create_product(shop, token, product_data):
     return response.json()["product"]
 
 
+# =========================
+# 更新商品基本資料
+# =========================
+
 def update_product_basic(shop, token, product_id, product_data):
     url = f"https://{shop}/admin/api/{API_VERSION}/products/{product_id}.json"
 
@@ -359,7 +332,7 @@ def update_product_basic(shop, token, product_id, product_data):
             "vendor": product_data["vendor"],
             "product_type": product_data["product_type"],
             "tags": product_data["tags"],
-            "status": product_data["status"],
+            "status": product_data["status"]
         }
     }
 
@@ -373,6 +346,10 @@ def update_product_basic(shop, token, product_id, product_data):
 
     return response.json()["product"]
 
+
+# =========================
+# 刪除商品圖片
+# =========================
 
 def delete_product_images(shop, token, product_id, existing_images):
     for image in existing_images:
@@ -396,6 +373,10 @@ def delete_product_images(shop, token, product_id, existing_images):
             print(response.text)
 
 
+# =========================
+# 新增商品圖片
+# =========================
+
 def add_product_images(shop, token, product_id, images):
     for image in images:
         url = (
@@ -406,7 +387,9 @@ def add_product_images(shop, token, product_id, images):
         response = requests.post(
             url,
             headers=shopify_headers(token),
-            json={"image": image}
+            json={
+                "image": image
+            }
         )
 
         if not response.ok:
@@ -415,6 +398,10 @@ def add_product_images(shop, token, product_id, images):
 
         response.raise_for_status()
 
+
+# =========================
+# 取代商品圖片
+# =========================
 
 def replace_product_images(shop, token, product_id, source_images, existing_images):
     delete_product_images(
@@ -432,6 +419,10 @@ def replace_product_images(shop, token, product_id, source_images, existing_imag
     )
 
 
+# =========================
+# 取得商品 Variants
+# =========================
+
 def get_product_variants(shop, token, product_id):
     url = (
         f"https://{shop}/admin/api/{API_VERSION}/products/"
@@ -447,6 +438,10 @@ def get_product_variants(shop, token, product_id):
 
     return response.json().get("variants", [])
 
+
+# =========================
+# 更新 Variant
+# =========================
 
 def update_variant(shop, token, variant_id, variant_data):
     url = f"https://{shop}/admin/api/{API_VERSION}/variants/{variant_id}.json"
@@ -471,6 +466,10 @@ def update_variant(shop, token, variant_id, variant_data):
     response.raise_for_status()
 
 
+# =========================
+# 新增 Variant
+# =========================
+
 def create_variant(shop, token, product_id, variant_data):
     url = (
         f"https://{shop}/admin/api/{API_VERSION}/products/"
@@ -480,7 +479,9 @@ def create_variant(shop, token, product_id, variant_data):
     response = requests.post(
         url,
         headers=shopify_headers(token),
-        json={"variant": variant_data}
+        json={
+            "variant": variant_data
+        }
     )
 
     if not response.ok:
@@ -489,6 +490,10 @@ def create_variant(shop, token, product_id, variant_data):
 
     response.raise_for_status()
 
+
+# =========================
+# Variant 同步
+# =========================
 
 def sync_variants(shop, token, product_id, source_variants):
     existing_variants = get_product_variants(
@@ -515,221 +520,231 @@ def sync_variants(shop, token, product_id, source_variants):
         if sku in existing_by_sku:
             existing_variant = existing_by_sku[sku]
 
-            try:
-                update_payload = {
-                    "price": source_variant.get("price"),
-                    "compare_at_price": source_variant.get("compare_at_price"),
-                    "barcode": source_variant.get("barcode"),
-                    "weight": source_variant.get("weight"),
-                    "weight_unit": source_variant.get("weight_unit"),
-                    "taxable": source_variant.get("taxable"),
-                    "requires_shipping": source_variant.get("requires_shipping"),
-                }
+            update_payload = {
+                "price": source_variant.get("price"),
+                "compare_at_price": source_variant.get("compare_at_price"),
+                "barcode": source_variant.get("barcode"),
+                "weight": source_variant.get("weight"),
+                "weight_unit": source_variant.get("weight_unit"),
+                "taxable": source_variant.get("taxable"),
+                "requires_shipping": source_variant.get("requires_shipping")
+            }
 
-                cleaned_payload = {
-                    key: value
-                    for key, value in update_payload.items()
-                    if value not in [None, ""]
-                }
+            cleaned_payload = {
+                key: value
+                for key, value in update_payload.items()
+                if value not in [None, ""]
+            }
 
-                update_variant(
-                    shop,
-                    token,
-                    existing_variant["id"],
-                    cleaned_payload
-                )
+            update_variant(
+                shop,
+                token,
+                existing_variant["id"],
+                cleaned_payload
+            )
 
-                print(f"🔄 更新 Variant SKU：{sku}")
-
-            except Exception as error:
-                print(f"❌ 更新 Variant 失敗：{sku}")
-                print(str(error))
+            print(f"🔄 更新 Variant SKU：{sku}")
 
         else:
-            try:
-                create_variant(
-                    shop,
-                    token,
-                    product_id,
-                    source_variant
+            create_variant(
+                shop,
+                token,
+                product_id,
+                source_variant
+            )
+
+            print(f"✅ 新增 Variant SKU：{sku}")
+
+
+# =========================
+# 商品後台連結
+# =========================
+
+def get_product_admin_url(shop, product_id):
+    return (
+        f"https://admin.shopify.com/store/"
+        f"{shop.replace('.myshopify.com', '')}"
+        f"/products/{product_id}"
+    )
+
+
+# =========================
+# 取得第一張圖片
+# =========================
+
+def get_first_image(product):
+    if product.get("images"):
+        return product["images"][0].get("src", "")
+
+    return ""
+
+
+# =========================
+# 同步單一商品
+# =========================
+
+def sync_one_product(product, brand_store_map):
+    title = product.get("title")
+    vendor = (product.get("vendor") or "").strip().upper()
+    first_image = get_first_image(product)
+
+    print("\n====================================================")
+    print(f"商品名稱：{title}")
+    print(f"品牌 Vendor：{vendor}")
+    print(f"來源狀態：{product.get('status')}")
+
+    target_shops_raw = brand_store_map.get(vendor, "")
+
+    if not target_shops_raw:
+        print("❌ 找不到品牌對應商店")
+
+        add_result(
+            title,
+            vendor,
+            "-",
+            "failed",
+            "找不到品牌對應商店",
+            first_image
+        )
+
+        return
+
+    target_shops = [
+        shop.strip()
+        for shop in target_shops_raw.split(",")
+        if shop.strip()
+    ]
+
+    for target_shop in target_shops:
+        target_token = get_target_token(target_shop)
+
+        if not target_token:
+            print(f"❌ 找不到 Token：{target_shop}")
+
+            add_result(
+                title,
+                vendor,
+                target_shop,
+                "failed",
+                "找不到商店 Token",
+                first_image
+            )
+
+            continue
+
+        try:
+            product_data = build_product_data(product)
+
+            existing_product = find_product_by_title(
+                target_shop,
+                target_token,
+                title
+            )
+
+            if existing_product:
+                target_product_id = existing_product["id"]
+
+                updated_product = update_product_basic(
+                    target_shop,
+                    target_token,
+                    target_product_id,
+                    product_data
                 )
 
-                print(f"✅ 新增 Variant SKU：{sku}")
+                replace_product_images(
+                    target_shop,
+                    target_token,
+                    target_product_id,
+                    product_data["images"],
+                    existing_product.get("images", [])
+                )
 
-            except Exception as error:
-                print(f"❌ 新增 Variant 失敗：{sku}")
-                print(str(error))
+                sync_variants(
+                    target_shop,
+                    target_token,
+                    target_product_id,
+                    product_data["variants"]
+                )
+
+                product_url = get_product_admin_url(
+                    target_shop,
+                    updated_product["id"]
+                )
+
+                print(f"🔄 已更新：{target_shop}")
+
+                add_result(
+                    title,
+                    vendor,
+                    target_shop,
+                    "success",
+                    f"商品已存在，已更新，狀態：{product_data['status']}",
+                    first_image,
+                    product_url
+                )
+
+            else:
+                created_product = create_product(
+                    target_shop,
+                    target_token,
+                    product_data
+                )
+
+                product_url = get_product_admin_url(
+                    target_shop,
+                    created_product["id"]
+                )
+
+                print(f"✅ 已新增到：{target_shop}")
+
+                add_result(
+                    title,
+                    vendor,
+                    target_shop,
+                    "success",
+                    f"新增商品成功，狀態：{product_data['status']}",
+                    first_image,
+                    product_url
+                )
+
+        except Exception as error:
+            print(f"❌ 同步失敗：{str(error)}")
+
+            add_result(
+                title,
+                vendor,
+                target_shop,
+                "failed",
+                str(error),
+                first_image
+            )
 
 
-def update_existing_product(shop, token, existing_product, product_data, source_product):
-    product_id = existing_product["id"]
-
-    updated_product = update_product_basic(
-        shop,
-        token,
-        product_id,
-        product_data
-    )
-
-    replace_product_images(
-        shop,
-        token,
-        product_id,
-        product_data["images"],
-        existing_product.get("images", [])
-    )
-
-    sync_variants(
-        shop,
-        token,
-        product_id,
-        product_data["variants"]
-    )
-
-    size_chart_message = sync_size_chart(
-        source_product,
-        shop,
-        token,
-        product_id
-    )
-
-    return updated_product, size_chart_message
-
+# =========================
+# 主同步流程
+# =========================
 
 def sync_products():
     print("📦 開始讀取主來源商店商品...")
+
+    brand_store_map = get_brand_store_map()
 
     products = get_master_products()
 
     print(f"找到 {len(products)} 個商品")
 
     for product in products:
-        title = product.get("title")
-        vendor = normalize_vendor(product.get("vendor", ""))
-        first_image = get_first_image(product)
-
-        print("\n====================================================")
-        print(f"商品名稱：{title}")
-        print(f"品牌 Vendor：{vendor}")
-        print(f"來源狀態：{product.get('status')}")
-
-        target_shops_raw = BRAND_STORE_MAP.get(vendor, "")
-
-        if not target_shops_raw:
-            print("❌ 找不到品牌對應商店")
-
-            add_result(
-                title,
-                vendor,
-                "-",
-                "failed",
-                "找不到品牌對應商店",
-                first_image
-            )
-            continue
-
-        target_shops = [
-            shop.strip()
-            for shop in target_shops_raw.split(",")
-            if shop.strip()
-        ]
-
-        for target_shop in target_shops:
-            target_token = get_target_token(target_shop)
-
-            if not target_token:
-                print(f"❌ 找不到 Token：{target_shop}")
-
-                add_result(
-                    title,
-                    vendor,
-                    target_shop,
-                    "failed",
-                    "找不到商店 Token",
-                    first_image
-                )
-                continue
-
-            try:
-                product_data = build_product_data(product)
-
-                existing_product = find_product_by_title(
-                    target_shop,
-                    target_token,
-                    title
-                )
-
-                if existing_product:
-                    updated_product, size_chart_message = update_existing_product(
-                        target_shop,
-                        target_token,
-                        existing_product,
-                        product_data,
-                        product
-                    )
-
-                    product_url = get_product_admin_url(
-                        target_shop,
-                        updated_product["id"]
-                    )
-
-                    print(f"🔄 已更新：{target_shop}")
-
-                    add_result(
-                        title,
-                        vendor,
-                        target_shop,
-                        "success",
-                        f"商品已存在，已更新，狀態：{product_data['status']}，{size_chart_message}",
-                        first_image,
-                        product_url
-                    )
-
-                else:
-                    created_product = create_product(
-                        target_shop,
-                        target_token,
-                        product_data
-                    )
-
-                    size_chart_message = sync_size_chart(
-                        product,
-                        target_shop,
-                        target_token,
-                        created_product["id"]
-                    )
-
-                    product_url = get_product_admin_url(
-                        target_shop,
-                        created_product["id"]
-                    )
-
-                    print(f"✅ 已新增到：{target_shop}")
-
-                    add_result(
-                        title,
-                        vendor,
-                        target_shop,
-                        "success",
-                        f"新增商品成功，狀態：{product_data['status']}，{size_chart_message}",
-                        first_image,
-                        product_url
-                    )
-
-            except Exception as error:
-                print(f"❌ 同步失敗：{str(error)}")
-
-                add_result(
-                    title,
-                    vendor,
-                    target_shop,
-                    "failed",
-                    str(error),
-                    first_image
-                )
+        sync_one_product(
+            product,
+            brand_store_map
+        )
 
     print("\n🎉 商品同步完成")
 
+
+# =========================
+# 輸出同步結果 JSON
+# =========================
 
 def print_result_json():
     summary = {
@@ -744,7 +759,7 @@ def print_result_json():
         "failed": len([
             result for result in SYNC_RESULTS
             if result["status"] == "failed"
-        ]),
+        ])
     }
 
     result = {
@@ -756,6 +771,10 @@ def print_result_json():
     print(json.dumps(result, ensure_ascii=False))
     print("SYNC_RESULT_JSON_END")
 
+
+# =========================
+# 執行
+# =========================
 
 if __name__ == "__main__":
     sync_products()
