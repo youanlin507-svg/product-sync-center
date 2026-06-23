@@ -15,11 +15,7 @@ SYNC_RESULTS = []
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 BRAND_RULES_FILE = os.path.join(BASE_DIR, "brand_rules.json")
-
-# =========================
-# 預設品牌同步商店設定
-# 如果沒有 brand_rules.json，才會使用這裡
-# =========================
+SELECTED_PRODUCTS_FILE = os.path.join(BASE_DIR, "selected_products.json")
 
 BRAND_STORE_MAP = {
     "DESCENTE": os.getenv("BRAND_DESCENTE_STORES", ""),
@@ -30,10 +26,6 @@ BRAND_STORE_MAP = {
     "ASH": os.getenv("BRAND_ASH_STORES", ""),
 }
 
-
-# =========================
-# 讀取品牌規則
-# =========================
 
 def get_brand_store_map():
     if os.path.exists(BRAND_RULES_FILE):
@@ -59,9 +51,21 @@ def get_brand_store_map():
     return BRAND_STORE_MAP
 
 
-# =========================
-# Shopify Headers
-# =========================
+def get_selected_product_ids():
+    if not os.path.exists(SELECTED_PRODUCTS_FILE):
+        return []
+
+    try:
+        with open(SELECTED_PRODUCTS_FILE, "r", encoding="utf-8") as file:
+            product_ids = json.load(file)
+
+        return [str(product_id) for product_id in product_ids]
+
+    except Exception as error:
+        print("⚠️ 讀取 selected_products.json 失敗")
+        print(str(error))
+        return []
+
 
 def shopify_headers(token):
     return {
@@ -69,10 +73,6 @@ def shopify_headers(token):
         "Content-Type": "application/json"
     }
 
-
-# =========================
-# 取得商店 Token
-# =========================
 
 def get_target_token(shop):
     env_key = (
@@ -85,10 +85,6 @@ def get_target_token(shop):
 
     return os.getenv(env_key)
 
-
-# =========================
-# 加入同步結果
-# =========================
 
 def add_result(
     title,
@@ -110,10 +106,6 @@ def add_result(
     })
 
 
-# =========================
-# 取得主商店商品
-# =========================
-
 def get_master_products():
     url = f"https://{MASTER_SHOP}/admin/api/{API_VERSION}/products.json?limit=250"
 
@@ -126,10 +118,6 @@ def get_master_products():
 
     return response.json().get("products", [])
 
-
-# =========================
-# 尋找商品
-# =========================
 
 def find_product_by_title(shop, token, title):
     encoded_title = quote(title)
@@ -151,10 +139,6 @@ def find_product_by_title(shop, token, title):
     return products[0] if products else None
 
 
-# =========================
-# 建立商品圖片
-# =========================
-
 def build_images(product):
     images = []
 
@@ -173,10 +157,6 @@ def build_images(product):
 
     return images
 
-
-# =========================
-# 商品變體同步
-# =========================
 
 def build_variants(product):
     variants = []
@@ -209,10 +189,6 @@ def build_variants(product):
     return variants
 
 
-# =========================
-# 商品 Options
-# =========================
-
 def build_options(product):
     options = []
 
@@ -226,10 +202,6 @@ def build_options(product):
 
     return options
 
-
-# =========================
-# Tags 處理
-# =========================
 
 def build_tags(product, vendor):
     tags = []
@@ -265,10 +237,6 @@ def build_tags(product, vendor):
     return ", ".join(unique_tags)
 
 
-# =========================
-# 建立商品資料
-# =========================
-
 def build_product_data(product):
     vendor = product.get("vendor", "")
 
@@ -284,10 +252,6 @@ def build_product_data(product):
         "status": product.get("status", "draft")
     }
 
-
-# =========================
-# 建立商品
-# =========================
 
 def create_product(shop, token, product_data):
     url = f"https://{shop}/admin/api/{API_VERSION}/products.json"
@@ -317,10 +281,6 @@ def create_product(shop, token, product_data):
     return response.json()["product"]
 
 
-# =========================
-# 更新商品基本資料
-# =========================
-
 def update_product_basic(shop, token, product_id, product_data):
     url = f"https://{shop}/admin/api/{API_VERSION}/products/{product_id}.json"
 
@@ -347,10 +307,6 @@ def update_product_basic(shop, token, product_id, product_data):
     return response.json()["product"]
 
 
-# =========================
-# 刪除商品圖片
-# =========================
-
 def delete_product_images(shop, token, product_id, existing_images):
     for image in existing_images:
         image_id = image.get("id")
@@ -372,10 +328,6 @@ def delete_product_images(shop, token, product_id, existing_images):
             print(f"⚠️ 刪除圖片失敗：{image_id}")
             print(response.text)
 
-
-# =========================
-# 新增商品圖片
-# =========================
 
 def add_product_images(shop, token, product_id, images):
     for image in images:
@@ -399,10 +351,6 @@ def add_product_images(shop, token, product_id, images):
         response.raise_for_status()
 
 
-# =========================
-# 取代商品圖片
-# =========================
-
 def replace_product_images(shop, token, product_id, source_images, existing_images):
     delete_product_images(
         shop,
@@ -419,10 +367,6 @@ def replace_product_images(shop, token, product_id, source_images, existing_imag
     )
 
 
-# =========================
-# 取得商品 Variants
-# =========================
-
 def get_product_variants(shop, token, product_id):
     url = (
         f"https://{shop}/admin/api/{API_VERSION}/products/"
@@ -438,10 +382,6 @@ def get_product_variants(shop, token, product_id):
 
     return response.json().get("variants", [])
 
-
-# =========================
-# 更新 Variant
-# =========================
 
 def update_variant(shop, token, variant_id, variant_data):
     url = f"https://{shop}/admin/api/{API_VERSION}/variants/{variant_id}.json"
@@ -466,10 +406,6 @@ def update_variant(shop, token, variant_id, variant_data):
     response.raise_for_status()
 
 
-# =========================
-# 新增 Variant
-# =========================
-
 def create_variant(shop, token, product_id, variant_data):
     url = (
         f"https://{shop}/admin/api/{API_VERSION}/products/"
@@ -490,10 +426,6 @@ def create_variant(shop, token, product_id, variant_data):
 
     response.raise_for_status()
 
-
-# =========================
-# Variant 同步
-# =========================
 
 def sync_variants(shop, token, product_id, source_variants):
     existing_variants = get_product_variants(
@@ -556,10 +488,6 @@ def sync_variants(shop, token, product_id, source_variants):
             print(f"✅ 新增 Variant SKU：{sku}")
 
 
-# =========================
-# 商品後台連結
-# =========================
-
 def get_product_admin_url(shop, product_id):
     return (
         f"https://admin.shopify.com/store/"
@@ -568,20 +496,12 @@ def get_product_admin_url(shop, product_id):
     )
 
 
-# =========================
-# 取得第一張圖片
-# =========================
-
 def get_first_image(product):
     if product.get("images"):
         return product["images"][0].get("src", "")
 
     return ""
 
-
-# =========================
-# 同步單一商品
-# =========================
 
 def sync_one_product(product, brand_store_map):
     title = product.get("title")
@@ -592,6 +512,7 @@ def sync_one_product(product, brand_store_map):
     print(f"商品名稱：{title}")
     print(f"品牌 Vendor：{vendor}")
     print(f"來源狀態：{product.get('status')}")
+    print(f"商品 ID：{product.get('id')}")
 
     target_shops_raw = brand_store_map.get(vendor, "")
 
@@ -720,16 +641,25 @@ def sync_one_product(product, brand_store_map):
             )
 
 
-# =========================
-# 主同步流程
-# =========================
-
 def sync_products():
     print("📦 開始讀取主來源商店商品...")
 
     brand_store_map = get_brand_store_map()
 
     products = get_master_products()
+
+    selected_ids = get_selected_product_ids()
+
+    if selected_ids:
+        products = [
+            product for product in products
+            if str(product.get("id")) in selected_ids
+        ]
+
+        print(f"🎯 只同步勾選商品，共 {len(products)} 個")
+
+    else:
+        print("📦 沒有勾選商品設定，執行全部同步")
 
     print(f"找到 {len(products)} 個商品")
 
@@ -741,10 +671,6 @@ def sync_products():
 
     print("\n🎉 商品同步完成")
 
-
-# =========================
-# 輸出同步結果 JSON
-# =========================
 
 def print_result_json():
     summary = {
@@ -771,10 +697,6 @@ def print_result_json():
     print(json.dumps(result, ensure_ascii=False))
     print("SYNC_RESULT_JSON_END")
 
-
-# =========================
-# 執行
-# =========================
 
 if __name__ == "__main__":
     sync_products()
