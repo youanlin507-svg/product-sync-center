@@ -334,7 +334,7 @@ pre {
 </div>
 
 <div class="card">
-    <h2>④ Webhook 自動同步開關</h2>
+    <h2>③ Webhook 自動同步開關</h2>
     <div id="webhookStatus" class="webhook-status">讀取中...</div>
     <button onclick="setWebhook(true)">開啟自動同步</button>
     <button class="off" onclick="setWebhook(false)">關閉自動同步</button>
@@ -342,12 +342,12 @@ pre {
 </div>
 
 <div class="card">
-    <h2>⑤ 手動同步</h2>
+    <h2>④ 手動同步</h2>
     <button onclick="runSync()">🚀 手動同步商品</button>
 </div>
 
 <div class="card">
-    <h2>⑥ 同步結果</h2>
+    <h2>⑤ 同步結果</h2>
 
     <div class="summary">
         <div class="summary-box">✅ 成功：<span id="successCount">0</span></div>
