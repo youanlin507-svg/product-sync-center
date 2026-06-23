@@ -339,6 +339,21 @@ pre {
     <button onclick="setWebhook(true)">開啟自動同步</button>
     <button class="off" onclick="setWebhook(false)">關閉自動同步</button>
     <p>關閉後，Shopify 仍會送 Webhook，但系統不會自動執行同步。</p>
+    <br>
+
+<button onclick="toggleRules()">
+    📋 查看同步規則
+</button>
+
+<div id="rulesBox" style="display:none; margin-top:16px;">
+    <pre id="rulesText" style="
+        background:#111827;
+        color:#10b981;
+        padding:16px;
+        border-radius:8px;
+        white-space:pre-wrap;
+    ">尚未產生規則</pre>
+</div>
 </div>
 
 <div class="card">
