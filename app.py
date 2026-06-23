@@ -388,16 +388,9 @@ button.gray {
     <div id="productSelector" style="margin-top:20px;"></div>
 </div>
 
-<div class="card">
-    <h2>⑤ 手動同步</h2>
-
-    <button onclick="runSync()">
-        🚀 全部同步商品
-    </button>
-</div>
 
 <div class="card">
-    <h2>⑥ 同步結果</h2>
+    <h2>⑤ 同步結果</h2>
 
     <div class="summary">
         <div class="summary-box">✅ 成功：<span id="successCount">0</span></div>
