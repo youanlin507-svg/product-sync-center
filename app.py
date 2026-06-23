@@ -8,13 +8,20 @@ import os
 import hmac
 import hashlib
 import base64
+import requests
 
 app = FastAPI(title="Product Sync Center")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 SYNC_FILE = os.path.join(BASE_DIR, "sync_products.py")
 WEBHOOK_SETTING_FILE = os.path.join(BASE_DIR, "webhook_setting.json")
 BRAND_RULES_FILE = os.path.join(BASE_DIR, "brand_rules.json")
+SELECTED_PRODUCTS_FILE = os.path.join(BASE_DIR, "selected_products.json")
+
+API_VERSION = "2024-04"
+MASTER_SHOP = os.getenv("MASTER_SHOP")
+MASTER_TOKEN = os.getenv("MASTER_TOKEN")
 
 app.add_middleware(
     CORSMiddleware,
@@ -24,13 +31,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 DEFAULT_BRAND_RULES = {
     "DESCENTE": ["target-demo-1-74h5qyuh.myshopify.com"],
     "GFORE": ["target-demo-1-74h5qyuh.myshopify.com"],
     "2XU": ["target-demo-1-74h5qyuh.myshopify.com"],
     "CALLAWAY": ["target-demo-1-74h5qyuh.myshopify.com"],
- 
 }
 
 
@@ -305,6 +310,14 @@ button.gray {
     font-size: 14px;
 }
 
+.product-select-item {
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    margin-bottom: 8px;
+    background: #f9fafb;
+}
+
 #rawOutput {
     display: none;
 }
@@ -353,7 +366,6 @@ button.gray {
         <input id="rule_CALLAWAY" placeholder="target-demo-1-74h5qyuh.myshopify.com">
     </div>
 
-
     <button onclick="saveBrandRules()">💾 儲存品牌規則</button>
     <button class="gray" onclick="showBrandRules()">📋 查看同步規則</button>
 </div>
@@ -367,12 +379,25 @@ button.gray {
 </div>
 
 <div class="card">
-    <h2>④ 手動同步</h2>
-    <button onclick="runSync()">🚀 手動同步商品</button>
+    <h2>④ 選擇同步商品</h2>
+
+    <button onclick="loadProducts()">
+        📦 載入商品
+    </button>
+
+    <div id="productSelector" style="margin-top:20px;"></div>
 </div>
 
 <div class="card">
-    <h2>⑤ 同步結果</h2>
+    <h2>⑤ 手動同步</h2>
+
+    <button onclick="runSync()">
+        🚀 全部同步商品
+    </button>
+</div>
+
+<div class="card">
+    <h2>⑥ 同步結果</h2>
 
     <div class="summary">
         <div class="summary-box">✅ 成功：<span id="successCount">0</span></div>
@@ -499,92 +524,133 @@ function statusClass(status) {
     return "";
 }
 
-async function loadProducts() {
+function renderSyncResult(data) {
+    const productCards = document.getElementById("productCards");
+    const rawOutput = document.getElementById("rawOutput");
 
-    const container =
-        document.getElementById("productSelector");
+    document.getElementById("successCount").textContent =
+        data.summary?.success || 0;
 
-    container.innerHTML = "載入中...";
+    document.getElementById("skippedCount").textContent =
+        data.summary?.skipped || 0;
 
-    const response =
-        await fetch("/products/list");
+    document.getElementById("failedCount").textContent =
+        data.summary?.failed || 0;
 
-    const data =
-        await response.json();
+    if (rawOutput) {
+        rawOutput.textContent =
+            "執行狀態：" + (data.success ? "成功" : "失敗") + "\\n\\n" +
+            "Return Code：" + data.returncode + "\\n\\n" +
+            "同步輸出：\\n" + data.stdout + "\\n\\n" +
+            "錯誤訊息：\\n" + data.stderr;
+    }
 
-    let html = "";
+    productCards.innerHTML = "";
 
-    data.products.forEach(product => {
-
-        html += `
-        <div style="
-            padding:10px;
-            border:1px solid #ddd;
-            border-radius:8px;
-            margin-bottom:8px;
-        ">
-            <label>
-                <input
-                    type="checkbox"
-                    value="${product.id}"
-                    class="productCheck"
-                >
-                ${product.title}
-                (${product.vendor})
-            </label>
-        </div>
-        `;
-    });
-
-    html += `
-    <button onclick="syncSelectedProducts()">
-        🚀 同步勾選商品
-    </button>
-    `;
-
-    container.innerHTML = html;
-}
-
-
-async function syncSelectedProducts() {
-
-    const checks =
-        document.querySelectorAll(
-            ".productCheck:checked"
-        );
-
-    const productIds =
-        [...checks].map(x => x.value);
-
-    if(productIds.length === 0){
-
-        alert("請先勾選商品");
-
+    if (!data.results || data.results.length === 0) {
+        productCards.innerHTML = "<p>沒有同步商品資料。</p>";
         return;
     }
 
-    const response =
-        await fetch("/sync-selected", {
+    data.results.forEach(item => {
+        const image = item.image || "https://cdn.shopify.com/s/files/1/0533/2089/files/placeholder-images-image_large.png";
+        const productUrl = item.product_url || "#";
 
+        productCards.innerHTML += `
+            <div class="product-card">
+                <img src="${image}" alt="${item.title}">
+                <div class="product-content">
+                    <div class="product-title">${item.title}</div>
+                    <div>品牌：${item.vendor || "-"}</div>
+                    <div>目標商店：${item.target_shop || "-"}</div>
+                    <div class="${statusClass(item.status)}">狀態：${statusText(item.status)}</div>
+                    <div>訊息：${item.message || ""}</div>
+                    ${productUrl !== "#" ? `<a class="link-btn" href="${productUrl}" target="_blank">查看商品</a>` : ""}
+                </div>
+            </div>
+        `;
+    });
+}
+
+async function loadProducts() {
+    const container = document.getElementById("productSelector");
+
+    container.innerHTML = "載入中...";
+
+    try {
+        const response = await fetch("/products/list");
+        const data = await response.json();
+
+        let html = "";
+
+        data.products.forEach(product => {
+            html += `
+                <div class="product-select-item">
+                    <label>
+                        <input
+                            type="checkbox"
+                            value="${product.id}"
+                            class="productCheck"
+                        >
+                        ${product.title}
+                        (${product.vendor || "-"})
+                    </label>
+                </div>
+            `;
+        });
+
+        html += `
+            <button onclick="syncSelectedProducts()">
+                🚀 同步勾選商品
+            </button>
+        `;
+
+        container.innerHTML = html;
+
+    } catch (error) {
+        container.innerHTML = "商品載入失敗：" + error;
+    }
+}
+
+async function syncSelectedProducts() {
+    const productCards = document.getElementById("productCards");
+
+    const checks = document.querySelectorAll(".productCheck:checked");
+
+    const productIds = [...checks].map(x => x.value);
+
+    if (productIds.length === 0) {
+        alert("請先勾選商品");
+        return;
+    }
+
+    productCards.innerHTML = "<p>勾選商品同步中，請稍候...</p>";
+
+    try {
+        const response = await fetch("/sync-selected", {
             method: "POST",
-
             headers: {
                 "Content-Type": "application/json"
             },
-
             body: JSON.stringify({
                 product_ids: productIds
             })
         });
 
-    const data =
-        await response.json();
+        const data = await response.json();
 
-    alert(
-        "同步完成\\n成功：" +
-        data.summary.success
-    );
+        renderSyncResult(data);
+
+        alert(
+            "同步完成\\n成功：" +
+            (data.summary?.success || 0)
+        );
+
+    } catch (error) {
+        productCards.innerHTML = "<p>同步勾選商品失敗。</p>";
+    }
 }
+
 async function runSync() {
     const productCards = document.getElementById("productCards");
     const rawOutput = document.getElementById("rawOutput");
@@ -599,43 +665,7 @@ async function runSync() {
         const response = await fetch("/sync", { method: "POST" });
         const data = await response.json();
 
-        document.getElementById("successCount").textContent = data.summary.success || 0;
-        document.getElementById("skippedCount").textContent = data.summary.skipped || 0;
-        document.getElementById("failedCount").textContent = data.summary.failed || 0;
-
-        if (rawOutput) {
-            rawOutput.textContent =
-                "執行狀態：" + (data.success ? "成功" : "失敗") + "\\n\\n" +
-                "Return Code：" + data.returncode + "\\n\\n" +
-                "同步輸出：\\n" + data.stdout + "\\n\\n" +
-                "錯誤訊息：\\n" + data.stderr;
-        }
-
-        productCards.innerHTML = "";
-
-        if (!data.results || data.results.length === 0) {
-            productCards.innerHTML = "<p>沒有同步商品資料。</p>";
-            return;
-        }
-
-        data.results.forEach(item => {
-            const image = item.image || "https://cdn.shopify.com/s/files/1/0533/2089/files/placeholder-images-image_large.png";
-            const productUrl = item.product_url || "#";
-
-            productCards.innerHTML += `
-                <div class="product-card">
-                    <img src="${image}" alt="${item.title}">
-                    <div class="product-content">
-                        <div class="product-title">${item.title}</div>
-                        <div>品牌：${item.vendor || "-"}</div>
-                        <div>目標商店：${item.target_shop || "-"}</div>
-                        <div class="${statusClass(item.status)}">狀態：${statusText(item.status)}</div>
-                        <div>訊息：${item.message || ""}</div>
-                        ${productUrl !== "#" ? `<a class="link-btn" href="${productUrl}" target="_blank">查看商品</a>` : ""}
-                    </div>
-                </div>
-            `;
-        });
+        renderSyncResult(data);
 
     } catch (error) {
         productCards.innerHTML = "<p>同步失敗。</p>";
@@ -706,8 +736,14 @@ async def webhook_toggle(request: Request):
 
 @app.get("/products/list")
 def get_products():
-
-    import requests
+    if not MASTER_SHOP or not MASTER_TOKEN:
+        return JSONResponse(
+            {
+                "success": False,
+                "message": "MASTER_SHOP 或 MASTER_TOKEN 未設定"
+            },
+            status_code=500
+        )
 
     url = f"https://{MASTER_SHOP}/admin/api/{API_VERSION}/products.json?limit=250"
 
@@ -746,17 +782,15 @@ def get_products():
 
 @app.post("/sync-selected")
 async def sync_selected(request: Request):
-
     body = await request.json()
 
     product_ids = body.get("product_ids", [])
 
     with open(
-        "selected_products.json",
+        SELECTED_PRODUCTS_FILE,
         "w",
         encoding="utf-8"
     ) as file:
-
         json.dump(
             product_ids,
             file,
@@ -766,9 +800,15 @@ async def sync_selected(request: Request):
     return JSONResponse(
         run_sync_script()
     )
+
+
 @app.post("/sync")
 def manual_sync():
-    print("🖱️ 手動同步被觸發")
+    print("🖱️ 手動全部同步被觸發")
+
+    if os.path.exists(SELECTED_PRODUCTS_FILE):
+        os.remove(SELECTED_PRODUCTS_FILE)
+
     return JSONResponse(run_sync_script())
 
 
@@ -798,6 +838,9 @@ async def product_create_webhook(request: Request):
             "event": "products/create",
             "message": "Webhook received, auto sync disabled"
         })
+
+    if os.path.exists(SELECTED_PRODUCTS_FILE):
+        os.remove(SELECTED_PRODUCTS_FILE)
 
     data = run_sync_script()
 
@@ -835,6 +878,9 @@ async def product_update_webhook(request: Request):
             "event": "products/update",
             "message": "Webhook received, auto sync disabled"
         })
+
+    if os.path.exists(SELECTED_PRODUCTS_FILE):
+        os.remove(SELECTED_PRODUCTS_FILE)
 
     data = run_sync_script()
 
