@@ -311,11 +311,39 @@ button.gray {
 }
 
 .product-select-item {
-    padding: 10px;
+    display: grid;
+    grid-template-columns: 36px 72px 1fr;
+    gap: 12px;
+    align-items: center;
+    padding: 12px;
     border: 1px solid #ddd;
-    border-radius: 8px;
-    margin-bottom: 8px;
+    border-radius: 10px;
+    margin-bottom: 10px;
     background: #f9fafb;
+}
+
+.product-select-item img {
+    width: 72px;
+    height: 72px;
+    object-fit: cover;
+    border-radius: 8px;
+    background: #f3f4f6;
+}
+
+.product-meta {
+    font-size: 13px;
+    color: #6b7280;
+    margin-top: 4px;
+}
+
+.product-link {
+    font-weight: bold;
+    color: #2563eb;
+    text-decoration: none;
+}
+
+.product-link:hover {
+    text-decoration: underline;
 }
 
 #rawOutput {
@@ -379,7 +407,7 @@ button.gray {
 </div>
 
 <div class="card">
-    <h2>④ 選擇同步商品</h2>
+    <h2>④ 最近商品（100筆）</h2>
 
     <input
         id="productSearch"
@@ -399,15 +427,30 @@ button.gray {
         <option value="CALLAWAY">CALLAWAY</option>
     </select>
 
+    <select
+        id="sortMode"
+        onchange="loadProducts()"
+        style="margin-top:10px;"
+    >
+        <option value="updated">最近更新</option>
+        <option value="created">最近新增</option>
+    </select>
+
     <div style="margin-top:12px;">
-        <button onclick="loadProducts()">📦 載入商品</button>
-        <button class="gray" onclick="selectAllProducts()">☑ 全選</button>
+        <button onclick="loadProducts()">📦 載入最近100筆</button>
+        <button class="gray" onclick="selectAllProducts()">☑ 全選本頁</button>
         <button class="gray" onclick="clearAllProducts()">取消全選</button>
     </div>
 
     <p id="selectedCount" class="note">已選 0 個商品</p>
 
     <div id="productSelector" style="margin-top:20px;"></div>
+
+    <div style="margin-top:12px;">
+        <button class="gray" onclick="prevPage()">上一頁</button>
+        <button class="gray" onclick="nextPage()">下一頁</button>
+        <span id="pageInfo" class="note"></span>
+    </div>
 
     <button onclick="syncSelectedProducts()">
         🚀 同步已選商品
@@ -435,11 +478,26 @@ button.gray {
 <script>
 const BRANDS = ["DESCENTE", "GFORE", "2XU", "CALLAWAY"];
 
+let allProducts = [];
+let currentPage = 1;
+const pageSize = 20;
+
 function splitStores(value) {
     return value
         .split(",")
         .map(item => item.trim())
         .filter(item => item.length > 0);
+}
+
+function formatDate(value) {
+    if (!value) return "-";
+
+    try {
+        const date = new Date(value);
+        return date.toLocaleString("zh-TW");
+    } catch {
+        return value;
+    }
 }
 
 async function loadBrandRules() {
@@ -590,18 +648,18 @@ function renderSyncResult(data) {
     });
 }
 
-let allProducts = [];
-
 async function loadProducts() {
     const container = document.getElementById("productSelector");
+    const sortMode = document.getElementById("sortMode").value;
 
     container.innerHTML = "載入中...";
 
     try {
-        const response = await fetch("/products/list");
+        const response = await fetch("/products/list?sort=" + sortMode);
         const data = await response.json();
 
         allProducts = data.products || [];
+        currentPage = 1;
 
         renderProductList();
 
@@ -610,15 +668,14 @@ async function loadProducts() {
     }
 }
 
-function renderProductList() {
-    const container = document.getElementById("productSelector");
+function getFilteredProducts() {
     const searchInput = document.getElementById("productSearch");
     const brandSelect = document.getElementById("brandFilter");
 
     const keyword = searchInput.value.toLowerCase();
     const brand = brandSelect.value;
 
-    let filteredProducts = allProducts.filter(product => {
+    return allProducts.filter(product => {
         const title = (product.title || "").toLowerCase();
         const vendor = (product.vendor || "").toUpperCase();
 
@@ -627,33 +684,82 @@ function renderProductList() {
 
         return titleMatch && brandMatch;
     });
+}
+
+function renderProductList() {
+    const container = document.getElementById("productSelector");
+    const pageInfo = document.getElementById("pageInfo");
+
+    const filteredProducts = getFilteredProducts();
+
+    const totalPages = Math.max(1, Math.ceil(filteredProducts.length / pageSize));
+
+    if (currentPage > totalPages) {
+        currentPage = totalPages;
+    }
+
+    const startIndex = (currentPage - 1) * pageSize;
+    const pageProducts = filteredProducts.slice(startIndex, startIndex + pageSize);
 
     let html = "";
 
-    filteredProducts.forEach(product => {
+    pageProducts.forEach(product => {
+        const image = product.image || "https://cdn.shopify.com/s/files/1/0533/2089/files/placeholder-images-image_large.png";
+
         html += `
             <div class="product-select-item">
-                <label>
-                    <input
-                        type="checkbox"
-                        value="${product.id}"
-                        class="productCheck"
-                        onchange="updateSelectedCount()"
+                <input
+                    type="checkbox"
+                    value="${product.id}"
+                    class="productCheck"
+                    onchange="updateSelectedCount()"
+                >
+
+                <img src="${image}" alt="${product.title}">
+
+                <div>
+                    <a
+                        href="${product.admin_url}"
+                        target="_blank"
+                        class="product-link"
                     >
-                    ${product.title}
-                    (${product.vendor || "-"})
-                </label>
+                        ${product.title}
+                    </a>
+
+                    <div class="product-meta">品牌：${product.vendor || "-"}</div>
+                    <div class="product-meta">狀態：${product.status || "-"}</div>
+                    <div class="product-meta">建立：${formatDate(product.created_at)}</div>
+                    <div class="product-meta">更新：${formatDate(product.updated_at)}</div>
+                </div>
             </div>
         `;
     });
 
-    if (filteredProducts.length === 0) {
+    if (pageProducts.length === 0) {
         html = "<p>找不到符合條件的商品。</p>";
     }
 
     container.innerHTML = html;
+    pageInfo.textContent = "第 " + currentPage + " / " + totalPages + " 頁，共 " + filteredProducts.length + " 筆";
 
     updateSelectedCount();
+}
+
+function prevPage() {
+    if (currentPage > 1) {
+        currentPage--;
+        renderProductList();
+    }
+}
+
+function nextPage() {
+    const filteredProducts = getFilteredProducts();
+    const totalPages = Math.max(1, Math.ceil(filteredProducts.length / pageSize));
+
+    if (currentPage < totalPages) {
+        currentPage++;
+        renderProductList();
+    }
 }
 
 function selectAllProducts() {
@@ -719,58 +825,6 @@ async function syncSelectedProducts() {
     }
 }
 
-    productCards.innerHTML = "<p>勾選商品同步中，請稍候...</p>";
-
-    try {
-        const response = await fetch("/sync-selected", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-                product_ids: productIds
-            })
-        });
-
-        const data = await response.json();
-
-        renderSyncResult(data);
-
-        alert(
-            "同步完成\\n成功：" +
-            (data.summary?.success || 0)
-        );
-
-    } catch (error) {
-        productCards.innerHTML = "<p>同步勾選商品失敗。</p>";
-    }
-}
-
-async function runSync() {
-    const productCards = document.getElementById("productCards");
-    const rawOutput = document.getElementById("rawOutput");
-
-    productCards.innerHTML = "<p>同步中，請稍候...</p>";
-
-    if (rawOutput) {
-        rawOutput.textContent = "同步中，請稍候...";
-    }
-
-    try {
-        const response = await fetch("/sync", { method: "POST" });
-        const data = await response.json();
-
-        renderSyncResult(data);
-
-    } catch (error) {
-        productCards.innerHTML = "<p>同步失敗。</p>";
-
-        if (rawOutput) {
-            rawOutput.textContent = "同步失敗：\\n" + error;
-        }
-    }
-}
-
 loadBrandRules();
 loadWebhookStatus();
 </script>
@@ -830,7 +884,7 @@ async def webhook_toggle(request: Request):
 
 
 @app.get("/products/list")
-def get_products():
+def get_products(sort: str = "updated"):
     if not MASTER_SHOP or not MASTER_TOKEN:
         return JSONResponse(
             {
@@ -854,6 +908,21 @@ def get_products():
 
     products = response.json().get("products", [])
 
+    if sort == "created":
+        products.sort(
+            key=lambda product: product.get("created_at", ""),
+            reverse=True
+        )
+    else:
+        products.sort(
+            key=lambda product: product.get("updated_at", ""),
+            reverse=True
+        )
+
+    products = products[:100]
+
+    shop_short_name = MASTER_SHOP.replace(".myshopify.com", "")
+
     result = []
 
     for product in products:
@@ -862,15 +931,20 @@ def get_products():
             "title": product["title"],
             "vendor": product.get("vendor", ""),
             "status": product.get("status", ""),
+            "created_at": product.get("created_at", ""),
+            "updated_at": product.get("updated_at", ""),
             "image": (
                 product["images"][0]["src"]
                 if product.get("images")
                 else ""
-            )
+            ),
+            "admin_url": f"https://admin.shopify.com/store/{shop_short_name}/products/{product['id']}"
         })
 
     return {
         "success": True,
+        "sort": sort,
+        "count": len(result),
         "products": result
     }
 
@@ -895,16 +969,6 @@ async def sync_selected(request: Request):
     return JSONResponse(
         run_sync_script()
     )
-
-
-@app.post("/sync")
-def manual_sync():
-    print("🖱️ 手動全部同步被觸發")
-
-    if os.path.exists(SELECTED_PRODUCTS_FILE):
-        os.remove(SELECTED_PRODUCTS_FILE)
-
-    return JSONResponse(run_sync_script())
 
 
 @app.post("/webhooks/products/create")
