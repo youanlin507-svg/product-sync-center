@@ -16,6 +16,7 @@ SYNC_RESULTS = []
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 BRAND_RULES_FILE = os.path.join(BASE_DIR, "brand_rules.json")
 SELECTED_PRODUCTS_FILE = os.path.join(BASE_DIR, "selected_products.json")
+STORE_TEMPLATES_FILE = os.path.join(BASE_DIR, "store_templates.json")
 
 BRAND_STORE_MAP = {
     "DESCENTE": os.getenv("BRAND_DESCENTE_STORES", ""),
@@ -23,8 +24,15 @@ BRAND_STORE_MAP = {
     "G/FORE": os.getenv("BRAND_GFORE_STORES", ""),
     "2XU": os.getenv("BRAND_2XU_STORES", ""),
     "CALLAWAY": os.getenv("BRAND_CALLAWAY_STORES", ""),
-    "ASH": os.getenv("BRAND_ASH_STORES", ""),
 }
+
+
+DEFAULT_TEMPLATE = """
+<h2>{{ title }}</h2>
+<div>{{ body_html }}</div>
+<p>品牌：{{ vendor }}</p>
+<p>類別：{{ product_type }}</p>
+"""
 
 
 def get_brand_store_map():
@@ -65,6 +73,65 @@ def get_selected_product_ids():
         print("⚠️ 讀取 selected_products.json 失敗")
         print(str(error))
         return []
+
+
+def get_store_templates():
+    if not os.path.exists(STORE_TEMPLATES_FILE):
+        return {}
+
+    try:
+        with open(STORE_TEMPLATES_FILE, "r", encoding="utf-8") as file:
+            templates = json.load(file)
+
+        if isinstance(templates, dict):
+            return templates
+
+    except Exception as error:
+        print("⚠️ 讀取 store_templates.json 失敗")
+        print(str(error))
+
+    return {}
+
+
+def render_template(template, product):
+    values = {
+        "title": product.get("title") or "",
+        "body_html": product.get("body_html") or "",
+        "vendor": product.get("vendor") or "",
+        "product_type": product.get("product_type") or "",
+        "tags": product.get("tags") or "",
+        "status": product.get("status") or "",
+        "handle": product.get("handle") or "",
+    }
+
+    rendered = template
+
+    for key, value in values.items():
+        rendered = rendered.replace(
+            "{{ " + key + " }}",
+            str(value)
+        )
+
+        rendered = rendered.replace(
+            "{{" + key + "}}",
+            str(value)
+        )
+
+    return rendered
+
+
+def get_body_html_for_target_shop(product, target_shop):
+    templates = get_store_templates()
+
+    template = templates.get(target_shop)
+
+    if not template:
+        print(f"ℹ️ {target_shop} 沒有設定模板，使用預設格式")
+        template = DEFAULT_TEMPLATE
+    else:
+        print(f"✅ {target_shop} 使用自訂商品格式模板")
+
+    return render_template(template, product)
 
 
 def shopify_headers(token):
@@ -237,12 +304,17 @@ def build_tags(product, vendor):
     return ", ".join(unique_tags)
 
 
-def build_product_data(product):
+def build_product_data(product, target_shop):
     vendor = product.get("vendor", "")
+
+    body_html = get_body_html_for_target_shop(
+        product,
+        target_shop
+    )
 
     return {
         "title": product.get("title"),
-        "body_html": product.get("body_html"),
+        "body_html": body_html,
         "vendor": vendor,
         "product_type": product.get("product_type"),
         "tags": build_tags(product, vendor),
@@ -508,7 +580,7 @@ def sync_one_product(product, brand_store_map):
     vendor = (product.get("vendor") or "").strip().upper()
     first_image = get_first_image(product)
 
-    print("\n====================================================")
+    print("\\n====================================================")
     print(f"商品名稱：{title}")
     print(f"品牌 Vendor：{vendor}")
     print(f"來源狀態：{product.get('status')}")
@@ -554,7 +626,10 @@ def sync_one_product(product, brand_store_map):
             continue
 
         try:
-            product_data = build_product_data(product)
+            product_data = build_product_data(
+                product,
+                target_shop
+            )
 
             existing_product = find_product_by_title(
                 target_shop,
@@ -599,7 +674,7 @@ def sync_one_product(product, brand_store_map):
                     vendor,
                     target_shop,
                     "success",
-                    f"商品已存在，已更新，狀態：{product_data['status']}",
+                    f"商品已存在，已更新，狀態：{product_data['status']}，已套用目標商店格式",
                     first_image,
                     product_url
                 )
@@ -623,7 +698,7 @@ def sync_one_product(product, brand_store_map):
                     vendor,
                     target_shop,
                     "success",
-                    f"新增商品成功，狀態：{product_data['status']}",
+                    f"新增商品成功，狀態：{product_data['status']}，已套用目標商店格式",
                     first_image,
                     product_url
                 )
@@ -669,7 +744,7 @@ def sync_products():
             brand_store_map
         )
 
-    print("\n🎉 商品同步完成")
+    print("\\n🎉 商品同步完成")
 
 
 def print_result_json():
@@ -693,7 +768,7 @@ def print_result_json():
         "results": SYNC_RESULTS
     }
 
-    print("\nSYNC_RESULT_JSON_START")
+    print("\\nSYNC_RESULT_JSON_START")
     print(json.dumps(result, ensure_ascii=False))
     print("SYNC_RESULT_JSON_END")
 
