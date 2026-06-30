@@ -381,13 +381,38 @@ button.gray {
 <div class="card">
     <h2>④ 選擇同步商品</h2>
 
-    <button onclick="loadProducts()">
-        📦 載入商品
-    </button>
+    <input
+        id="productSearch"
+        placeholder="搜尋商品名稱..."
+        oninput="renderProductList()"
+    >
+
+    <select
+        id="brandFilter"
+        onchange="renderProductList()"
+        style="margin-top:10px;"
+    >
+        <option value="">全部品牌</option>
+        <option value="DESCENTE">DESCENTE</option>
+        <option value="GFORE">G/FORE</option>
+        <option value="2XU">2XU</option>
+        <option value="CALLAWAY">CALLAWAY</option>
+    </select>
+
+    <div style="margin-top:12px;">
+        <button onclick="loadProducts()">📦 載入商品</button>
+        <button class="gray" onclick="selectAllProducts()">☑ 全選</button>
+        <button class="gray" onclick="clearAllProducts()">取消全選</button>
+    </div>
+
+    <p id="selectedCount" class="note">已選 0 個商品</p>
 
     <div id="productSelector" style="margin-top:20px;"></div>
-</div>
 
+    <button onclick="syncSelectedProducts()">
+        🚀 同步已選商品
+    </button>
+</div>
 
 <div class="card">
     <h2>⑤ 同步結果</h2>
@@ -565,6 +590,8 @@ function renderSyncResult(data) {
     });
 }
 
+let allProducts = [];
+
 async function loadProducts() {
     const container = document.getElementById("productSelector");
 
@@ -574,48 +601,123 @@ async function loadProducts() {
         const response = await fetch("/products/list");
         const data = await response.json();
 
-        let html = "";
+        allProducts = data.products || [];
 
-        data.products.forEach(product => {
-            html += `
-                <div class="product-select-item">
-                    <label>
-                        <input
-                            type="checkbox"
-                            value="${product.id}"
-                            class="productCheck"
-                        >
-                        ${product.title}
-                        (${product.vendor || "-"})
-                    </label>
-                </div>
-            `;
-        });
-
-        html += `
-            <button onclick="syncSelectedProducts()">
-                🚀 同步勾選商品
-            </button>
-        `;
-
-        container.innerHTML = html;
+        renderProductList();
 
     } catch (error) {
         container.innerHTML = "商品載入失敗：" + error;
     }
 }
 
+function renderProductList() {
+    const container = document.getElementById("productSelector");
+    const searchInput = document.getElementById("productSearch");
+    const brandSelect = document.getElementById("brandFilter");
+
+    const keyword = searchInput.value.toLowerCase();
+    const brand = brandSelect.value;
+
+    let filteredProducts = allProducts.filter(product => {
+        const title = (product.title || "").toLowerCase();
+        const vendor = (product.vendor || "").toUpperCase();
+
+        const titleMatch = title.includes(keyword);
+        const brandMatch = !brand || vendor === brand;
+
+        return titleMatch && brandMatch;
+    });
+
+    let html = "";
+
+    filteredProducts.forEach(product => {
+        html += `
+            <div class="product-select-item">
+                <label>
+                    <input
+                        type="checkbox"
+                        value="${product.id}"
+                        class="productCheck"
+                        onchange="updateSelectedCount()"
+                    >
+                    ${product.title}
+                    (${product.vendor || "-"})
+                </label>
+            </div>
+        `;
+    });
+
+    if (filteredProducts.length === 0) {
+        html = "<p>找不到符合條件的商品。</p>";
+    }
+
+    container.innerHTML = html;
+
+    updateSelectedCount();
+}
+
+function selectAllProducts() {
+    document.querySelectorAll(".productCheck").forEach(item => {
+        item.checked = true;
+    });
+
+    updateSelectedCount();
+}
+
+function clearAllProducts() {
+    document.querySelectorAll(".productCheck").forEach(item => {
+        item.checked = false;
+    });
+
+    updateSelectedCount();
+}
+
+function updateSelectedCount() {
+    const count = document.querySelectorAll(".productCheck:checked").length;
+
+    document.getElementById("selectedCount").textContent =
+        "已選 " + count + " 個商品";
+}
+
 async function syncSelectedProducts() {
     const productCards = document.getElementById("productCards");
 
     const checks = document.querySelectorAll(".productCheck:checked");
-
     const productIds = [...checks].map(x => x.value);
 
     if (productIds.length === 0) {
         alert("請先勾選商品");
         return;
     }
+
+    productCards.innerHTML = "<p>勾選商品同步中，請稍候...</p>";
+
+    try {
+        const response = await fetch("/sync-selected", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                product_ids: productIds
+            })
+        });
+
+        const data = await response.json();
+
+        renderSyncResult(data);
+
+        alert(
+            "同步完成\\n已選商品：" +
+            productIds.length +
+            "\\n成功：" +
+            (data.summary?.success || 0)
+        );
+
+    } catch (error) {
+        productCards.innerHTML = "<p>同步勾選商品失敗。</p>";
+    }
+}
 
     productCards.innerHTML = "<p>勾選商品同步中，請稍候...</p>";
 
