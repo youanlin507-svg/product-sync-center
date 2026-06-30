@@ -5,9 +5,6 @@ import subprocess
 import sys
 import json
 import os
-import hmac
-import hashlib
-import base64
 import requests
 
 app = FastAPI(title="Product Sync Center")
@@ -15,7 +12,6 @@ app = FastAPI(title="Product Sync Center")
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 SYNC_FILE = os.path.join(BASE_DIR, "sync_products.py")
-WEBHOOK_SETTING_FILE = os.path.join(BASE_DIR, "webhook_setting.json")
 BRAND_RULES_FILE = os.path.join(BASE_DIR, "brand_rules.json")
 SELECTED_PRODUCTS_FILE = os.path.join(BASE_DIR, "selected_products.json")
 
@@ -55,49 +51,7 @@ def set_brand_rules(rules):
         json.dump(rules, file, ensure_ascii=False, indent=2)
 
 
-def get_webhook_setting():
-    if not os.path.exists(WEBHOOK_SETTING_FILE):
-        return True
-
-    try:
-        with open(WEBHOOK_SETTING_FILE, "r", encoding="utf-8") as file:
-            data = json.load(file)
-            return data.get("enabled", True)
-    except Exception:
-        return True
-
-
-def set_webhook_setting(enabled: bool):
-    with open(WEBHOOK_SETTING_FILE, "w", encoding="utf-8") as file:
-        json.dump({"enabled": enabled}, file, ensure_ascii=False)
-
-
-def verify_shopify_webhook(raw_body: bytes, hmac_header: str) -> bool:
-    secret = os.getenv("SHOPIFY_WEBHOOK_SECRET")
-
-    if not secret:
-        print("❌ SHOPIFY_WEBHOOK_SECRET 未設定")
-        return False
-
-    if not hmac_header:
-        print("❌ Webhook 沒有 HMAC Header")
-        return False
-
-    digest = hmac.new(
-        secret.encode("utf-8"),
-        raw_body,
-        hashlib.sha256
-    ).digest()
-
-    calculated_hmac = base64.b64encode(digest).decode("utf-8")
-
-    return hmac.compare_digest(calculated_hmac, hmac_header)
-
-
 def run_sync_script():
-    print("🚀 開始執行 sync_products.py")
-    print(f"📄 Sync file path: {SYNC_FILE}")
-
     result = subprocess.run(
         [sys.executable, SYNC_FILE],
         capture_output=True,
@@ -106,19 +60,7 @@ def run_sync_script():
         errors="ignore"
     )
 
-    print("========== SYNC STDOUT ==========")
-    print(result.stdout)
-    print("========== SYNC STDERR ==========")
-    print(result.stderr)
-    print("========== SYNC RETURN CODE ==========")
-    print(result.returncode)
-
-    summary = {
-        "success": 0,
-        "skipped": 0,
-        "failed": 0
-    }
-
+    summary = {"success": 0, "skipped": 0, "failed": 0}
     results = []
     stdout = result.stdout or ""
 
@@ -129,10 +71,8 @@ def run_sync_script():
         if start_key in stdout and end_key in stdout:
             json_text = stdout.split(start_key)[-1].split(end_key)[0].strip()
             parsed = json.loads(json_text)
-
             summary = parsed.get("summary", summary)
             results = parsed.get("results", [])
-
     except Exception as error:
         print("❌ 解析同步 JSON 失敗")
         print(str(error))
@@ -187,7 +127,7 @@ h2 {
     margin-top: 0;
 }
 
-input, select, textarea {
+input, select {
     width: 100%;
     padding: 12px;
     font-size: 16px;
@@ -217,10 +157,6 @@ button {
     cursor: pointer;
     margin-right: 10px;
     margin-top: 8px;
-}
-
-button.off {
-    background: #d72c0d;
 }
 
 button.gray {
@@ -297,12 +233,6 @@ button.gray {
     text-decoration: none;
     padding: 8px 12px;
     border-radius: 6px;
-}
-
-.webhook-status {
-    font-size: 20px;
-    font-weight: bold;
-    margin-bottom: 14px;
 }
 
 .note {
@@ -399,15 +329,7 @@ button.gray {
 </div>
 
 <div class="card">
-    <h2>③ Webhook 自動同步開關</h2>
-    <div id="webhookStatus" class="webhook-status">讀取中...</div>
-    <button onclick="setWebhook(true)">開啟自動同步</button>
-    <button class="off" onclick="setWebhook(false)">關閉自動同步</button>
-    <p>關閉後，Shopify 仍會送 Webhook，但系統不會自動執行同步。</p>
-</div>
-
-<div class="card">
-    <h2>④ 最近商品（100筆）</h2>
+    <h2>③ 最近商品（100筆）</h2>
 
     <input
         id="productSearch"
@@ -458,7 +380,7 @@ button.gray {
 </div>
 
 <div class="card">
-    <h2>⑤ 同步結果</h2>
+    <h2>④ 同步結果</h2>
 
     <div class="summary">
         <div class="summary-box">✅ 成功：<span id="successCount">0</span></div>
@@ -559,31 +481,6 @@ function showBrandRules() {
             : "目前沒有設定任何品牌同步規則";
 
     alert(message);
-}
-
-async function loadWebhookStatus() {
-    const response = await fetch("/webhook/status");
-    const data = await response.json();
-
-    document.getElementById("webhookStatus").textContent =
-        data.enabled ? "目前狀態：✅ 自動同步已開啟" : "目前狀態：⏸️ 自動同步已關閉";
-}
-
-async function setWebhook(enabled) {
-    const response = await fetch("/webhook/toggle", {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-            enabled: enabled
-        })
-    });
-
-    const data = await response.json();
-
-    document.getElementById("webhookStatus").textContent =
-        data.enabled ? "目前狀態：✅ 自動同步已開啟" : "目前狀態：⏸️ 自動同步已關閉";
 }
 
 function statusText(status) {
@@ -718,11 +615,7 @@ function renderProductList() {
                 <img src="${image}" alt="${product.title}">
 
                 <div>
-                    <a
-                        href="${product.admin_url}"
-                        target="_blank"
-                        class="product-link"
-                    >
+                    <a href="${product.admin_url}" target="_blank" class="product-link">
                         ${product.title}
                     </a>
 
@@ -826,7 +719,6 @@ async function syncSelectedProducts() {
 }
 
 loadBrandRules();
-loadWebhookStatus();
 </script>
 
 </body>
@@ -860,26 +752,6 @@ async def brand_rules_save(request: Request):
     return {
         "success": True,
         "rules": get_brand_rules()
-    }
-
-
-@app.get("/webhook/status")
-def webhook_status():
-    return {
-        "enabled": get_webhook_setting()
-    }
-
-
-@app.post("/webhook/toggle")
-async def webhook_toggle(request: Request):
-    body = await request.json()
-    enabled = body.get("enabled", True)
-
-    set_webhook_setting(bool(enabled))
-
-    return {
-        "success": True,
-        "enabled": get_webhook_setting()
     }
 
 
@@ -971,93 +843,11 @@ async def sync_selected(request: Request):
     )
 
 
-@app.post("/webhooks/products/create")
-async def product_create_webhook(request: Request):
-    print("🔥 Product Create Webhook Received")
-
-    raw_body = await request.body()
-    hmac_header = request.headers.get("X-Shopify-Hmac-Sha256")
-
-    if not verify_shopify_webhook(raw_body, hmac_header):
-        print("❌ Product Create Webhook HMAC 驗證失敗")
-        return JSONResponse(
-            {
-                "success": False,
-                "message": "Invalid webhook HMAC"
-            },
-            status_code=401
-        )
-
-    print("✅ Product Create Webhook HMAC 驗證成功")
-
-    if not get_webhook_setting():
-        print("⏸️ Webhook 自動同步已關閉")
-        return JSONResponse({
-            "success": True,
-            "event": "products/create",
-            "message": "Webhook received, auto sync disabled"
-        })
-
-    if os.path.exists(SELECTED_PRODUCTS_FILE):
-        os.remove(SELECTED_PRODUCTS_FILE)
-
-    data = run_sync_script()
-
-    return JSONResponse({
-        "success": True,
-        "event": "products/create",
-        "message": "Webhook received and sync executed",
-        "sync": data
-    })
-
-
-@app.post("/webhooks/products/update")
-async def product_update_webhook(request: Request):
-    print("🔥 Product Update Webhook Received")
-
-    raw_body = await request.body()
-    hmac_header = request.headers.get("X-Shopify-Hmac-Sha256")
-
-    if not verify_shopify_webhook(raw_body, hmac_header):
-        print("❌ Product Update Webhook HMAC 驗證失敗")
-        return JSONResponse(
-            {
-                "success": False,
-                "message": "Invalid webhook HMAC"
-            },
-            status_code=401
-        )
-
-    print("✅ Product Update Webhook HMAC 驗證成功")
-
-    if not get_webhook_setting():
-        print("⏸️ Webhook 自動同步已關閉")
-        return JSONResponse({
-            "success": True,
-            "event": "products/update",
-            "message": "Webhook received, auto sync disabled"
-        })
-
-    if os.path.exists(SELECTED_PRODUCTS_FILE):
-        os.remove(SELECTED_PRODUCTS_FILE)
-
-    data = run_sync_script()
-
-    return JSONResponse({
-        "success": True,
-        "event": "products/update",
-        "message": "Webhook received and sync executed",
-        "sync": data
-    })
-
-
 @app.get("/health")
 def health():
     return {
         "app": "Product Sync Center",
         "status": "running",
-        "webhook": "enabled",
-        "webhook_auto_sync_enabled": get_webhook_setting(),
         "brand_rules": get_brand_rules(),
         "sync_file": SYNC_FILE
     }
